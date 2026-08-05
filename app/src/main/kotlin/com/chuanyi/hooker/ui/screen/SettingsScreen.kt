@@ -239,7 +239,6 @@ fun SettingsScreen(settings: ModuleSettings) {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                     ArrowPreference(
                         title = "恢复默认外观",
-                        summary = "不动 hook 开关",
                         onClick = { showResetConfirm = true },
                     )
                 }
