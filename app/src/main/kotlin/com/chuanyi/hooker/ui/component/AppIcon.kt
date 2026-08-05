@@ -1,5 +1,10 @@
 package com.chuanyi.hooker.ui.component
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Bitmap.createBitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -19,7 +24,9 @@ import coil3.fetch.FetchResult
 import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
 import coil3.key.Keyer
+import coil3.request.CachePolicy
 import coil3.request.Options
+import coil3.size.pxOrElse
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -45,11 +52,31 @@ private class AppIconFetcher(
             options.context.packageManager.getApplicationIcon(model.packageName)
         }.getOrNull() ?: return null
 
+        val px = maxOf(
+            options.size.width.pxOrElse { 0 },
+            options.size.height.pxOrElse { 0 },
+        ).takeIf { it in 1..MAX_ICON_PX } ?: DEFAULT_ICON_PX
+
         return ImageFetchResult(
-            image = drawable.asImage(),
-            isSampled = false,
+            image = drawable.rasterize(px).asImage(),
+            isSampled = true,
             dataSource = DataSource.DISK,
         )
+    }
+
+    /**
+     * 画成位图再交出去。
+     *
+     * **这一步是应用列表能不能滑顺的关键。**直接把 Drawable 包成 Image 的话，
+     * 它每一帧都要重画一遍 —— 而应用图标几乎都是 `AdaptiveIconDrawable`：前景背景
+     * 两层，外加一次遮罩裁剪，一个就是几毫秒，一屏十来个必然掉帧。栅格化一次之后
+     * 滚动只是贴图，而且位图能被 Coil 的内存缓存真正复用。
+     */
+    private fun Drawable.rasterize(size: Int): Bitmap {
+        val bitmap = createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        setBounds(0, 0, size, size)
+        draw(Canvas(bitmap))
+        return bitmap
     }
 
     class Factory : Fetcher.Factory<AppIconModel> {
@@ -57,6 +84,12 @@ private class AppIconFetcher(
             AppIconFetcher(data, options)
     }
 }
+
+/** 请求没给尺寸时按这个画。列表里的图标是 38–44dp，@3.5x 也就一百多像素。 */
+private const val DEFAULT_ICON_PX = 160
+
+/** 上限：某些请求会给到整屏宽，照着画就是一张大位图白占内存。 */
+private const val MAX_ICON_PX = 384
 
 /** 缓存键。同一个包名复用同一份位图。 */
 private class AppIconKeyer : Keyer<AppIconModel> {
@@ -66,21 +99,33 @@ private class AppIconKeyer : Keyer<AppIconModel> {
 /**
  * 专用于应用图标的 ImageLoader。
  *
- * 不注册全局单例：显式传给 [AsyncImage] 即可，Xposed 模块不适合在 Application
- * 里挂东西。
+ * 不注册 Coil 的全局单例（Xposed 模块不适合在 Application 里挂东西），但**进程内
+ * 只建一个**：`ImageLoader` 各自带一份内存缓存，每个界面 `remember` 一个的话，
+ * 应用列表和详情页各刷各的，同一个图标要解码好几次。
+ *
+ * 磁盘缓存关掉：图标本来就来自本机的 PackageManager，再落一份盘只是白白在滚动
+ * 路径上多一次 IO 查找。
  */
 @Composable
 fun rememberAppIconLoader(): ImageLoader {
-    val context = LocalContext.current
-    return remember(context) {
-        ImageLoader.Builder(context)
+    val context = LocalContext.current.applicationContext
+    return remember(context) { sharedIconLoader(context) }
+}
+
+@Volatile
+private var sharedLoader: ImageLoader? = null
+
+private fun sharedIconLoader(context: Context): ImageLoader =
+    sharedLoader ?: synchronized(AppIconModel::class) {
+        sharedLoader ?: ImageLoader.Builder(context)
             .components {
                 add(AppIconKeyer())
                 add(AppIconFetcher.Factory())
             }
+            .diskCachePolicy(CachePolicy.DISABLED)
             .build()
+            .also { sharedLoader = it }
     }
-}
 
 /**
  * 应用图标，平滑圆角。

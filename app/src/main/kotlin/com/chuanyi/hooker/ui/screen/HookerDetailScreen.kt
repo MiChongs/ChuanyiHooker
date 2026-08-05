@@ -65,6 +65,7 @@ import com.chuanyi.hooker.ui.Motion
 import com.chuanyi.hooker.ui.component.AnimatedLabel
 import com.chuanyi.hooker.ui.component.AnimatedNumber
 import com.chuanyi.hooker.ui.component.AppIcon
+import com.chuanyi.hooker.ui.component.AppPickerSheet
 import com.chuanyi.hooker.ui.component.BlurScaffold
 import com.chuanyi.hooker.ui.component.FooterNote
 import com.chuanyi.hooker.ui.component.HookerTopAppBar
@@ -347,26 +348,35 @@ fun HookerDetailScreen(
         }
     }
 
-    // 映射表有自己的编辑器（一张能点的键盘），其余走通用的输入弹窗。
+    // 映射表和应用列表各有自己的编辑器（一张能点的键盘 / 一份能勾的应用列表），
+    // 其余走通用的输入弹窗。
+    val commit: (String) -> Unit = { text ->
+        editing?.let { settings.writeOption(hooker.id, it, text) }
+        editing = null
+    }
+    val editingRaw = editTarget?.let { optionRaw[it.key] }.orEmpty()
+    val hasOwnEditor = editing is HookOption.KeyMap || editing is HookOption.AppList
+
     OptionEditDialog(
-        show = editing != null && editing !is HookOption.KeyMap,
-        option = editTarget?.takeIf { it !is HookOption.KeyMap },
-        current = editTarget?.let { optionRaw[it.key] }.orEmpty(),
+        show = editing != null && !hasOwnEditor,
+        option = editTarget?.takeIf { it !is HookOption.KeyMap && it !is HookOption.AppList },
+        current = editingRaw,
         onDismiss = { editing = null },
-        onConfirm = { text ->
-            editing?.let { settings.writeOption(hooker.id, it, text) }
-            editing = null
-        },
+        onConfirm = commit,
     )
     KeyMapEditorSheet(
         show = editing is HookOption.KeyMap,
         option = editTarget as? HookOption.KeyMap,
-        current = editTarget?.let { optionRaw[it.key] }.orEmpty(),
+        current = editingRaw,
         onDismiss = { editing = null },
-        onConfirm = { text ->
-            editing?.let { settings.writeOption(hooker.id, it, text) }
-            editing = null
-        },
+        onConfirm = commit,
+    )
+    AppPickerSheet(
+        show = editing is HookOption.AppList,
+        option = editTarget as? HookOption.AppList,
+        current = editingRaw,
+        onDismiss = { editing = null },
+        onConfirm = commit,
     )
 }
 
@@ -1151,7 +1161,9 @@ private fun PresetSection(
  *  * [HookOption.Choice] —— 常用值就那么几个（有效期、灵敏度），下拉选一下最快；
  *  * [HookOption.Number] —— 连续量（条数），滑块能一边拖一边看效果，比反复开关
  *    输入框快得多；点标题进精确输入，兼顾「我就要 37」这种要求；
- *  * [HookOption.Text] —— 自由文本（按键映射表），只能弹输入框。
+ *  * [HookOption.Text] —— 自由文本，只能弹输入框；
+ *  * [HookOption.AppList] —— 一组应用，弹出可搜索的应用列表勾选；
+ *  * [HookOption.KeyMap] —— 按键映射，弹出一张能点的键盘。
  *
  * [HookOption.featureId] 非空的行跟着那个功能一起禁用：一个不生效的数字摆在那里
  * 只会让人以为它还管用。
@@ -1175,7 +1187,7 @@ private fun OptionSection(
                 when (option) {
                     is HookOption.Choice -> ChoiceRow(option, current, live, onEdit, onPick)
                     is HookOption.Number -> NumberRow(option, current, live, onEdit, onPick)
-                    is HookOption.Text, is HookOption.KeyMap -> ArrowPreference(
+                    is HookOption.Text, is HookOption.KeyMap, is HookOption.AppList -> ArrowPreference(
                         title = option.title,
                         summary = option.summary,
                         enabled = live,

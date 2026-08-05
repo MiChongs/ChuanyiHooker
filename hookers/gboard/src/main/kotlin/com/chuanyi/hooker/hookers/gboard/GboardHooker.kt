@@ -24,12 +24,16 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * 按键滑动走的是另一条路：不碰手势派发，只给按键定义补一条动作记录，
  * 剩下的完全是原版流程。细节见 [GboardSlide]。
+ *
+ * 终端那一项又是另一回事 —— 不改功能，只是纠正一个分类：Gboard 把
+ * `inputType = TYPE_NULL` 的输入框和密码框归成一类，于是终端拿到的是密码键盘。
+ * 细节见 [GboardKeyboard]。
  */
 class GboardHooker : AppHooker {
 
     override val id = "gboard"
     override val displayName = "Gboard"
-    override val description = "解开剪贴板的条数、有效期、字数限制，按键支持上下滑"
+    override val description = "解开剪贴板的条数、有效期、字数限制，按键支持上下滑，终端不降级键盘"
     override val targetPackages = setOf("com.google.android.inputmethod.latin")
 
     /** 装填逻辑只有一处，两个功能都要它 —— 谁先跑谁装。 */
@@ -72,6 +76,14 @@ class GboardHooker : AppHooker {
             summary = "原版没有下滑。开启后下滑输出长按的第二个候选，也可以在下面自己指定",
             defaultEnabled = false,
             install = { installSlide() },
+        ),
+        HookFeature(
+            id = FEATURE_TERMINAL,
+            title = "终端保留常规键盘",
+            summary = "Termux 这类终端在 Gboard 眼里等同密码框，会被换成固定的英文 QWERTY，" +
+                "语言、布局、上下滑全都没了。开启后照常用当前键盘",
+            defaultEnabled = false,
+            install = { installTerminal() },
         ),
     )
 
@@ -167,6 +179,15 @@ class GboardHooker : AppHooker {
                 HookOption.Choice.Entry("迟钝（要滑更远）", 3),
             ),
         ),
+        HookOption.AppList(
+            key = KEY_TERMINAL_APPS,
+            title = "生效应用",
+            summary = "留空则所有应用都生效",
+            featureId = FEATURE_TERMINAL,
+            default = DEFAULT_TERMINAL_APPS,
+            suggested = TERMINAL_APPS,
+            emptyMeansAll = true,
+        ),
     )
 
     /**
@@ -187,6 +208,7 @@ class GboardHooker : AppHooker {
                 FEATURE_CHARS to false,
                 FEATURE_SLIDE_UP to false,
                 FEATURE_SLIDE_DOWN to false,
+                FEATURE_TERMINAL to false,
             ),
         ),
         HookPreset(
@@ -199,6 +221,7 @@ class GboardHooker : AppHooker {
                 FEATURE_CHARS to false,
                 FEATURE_SLIDE_UP to true,
                 FEATURE_SLIDE_DOWN to false,
+                FEATURE_TERMINAL to false,
             ),
             options = mapOf(
                 KEY_MAX_ITEMS to 20,
@@ -209,31 +232,34 @@ class GboardHooker : AppHooker {
         HookPreset(
             id = "recommended",
             title = "推荐",
-            summary = "留 50 条、存 7 天、单条 20 万字，字母键上滑打数字",
+            summary = "留 50 条、存 7 天、单条 20 万字，上滑打数字，终端不降级",
             features = mapOf(
                 FEATURE_COUNT to true,
                 FEATURE_TTL to true,
                 FEATURE_CHARS to true,
                 FEATURE_SLIDE_UP to true,
                 FEATURE_SLIDE_DOWN to false,
+                FEATURE_TERMINAL to true,
             ),
             options = mapOf(
                 KEY_MAX_ITEMS to 50,
                 KEY_TTL_MINUTES to 10_080,
                 KEY_CHAR_LIMIT to 200_000,
                 KEY_UP_MAP to DIGIT_ROW_MAP,
+                KEY_TERMINAL_APPS to DEFAULT_TERMINAL_APPS,
             ),
         ),
         HookPreset(
             id = "hoard",
             title = "绝不丢失",
-            summary = "留 200 条、永久保留、单条 200 万字，上滑数字 + 下滑符号",
+            summary = "留 200 条、永久保留、单条 200 万字，上滑数字 + 下滑符号，终端不降级",
             features = mapOf(
                 FEATURE_COUNT to true,
                 FEATURE_TTL to true,
                 FEATURE_CHARS to true,
                 FEATURE_SLIDE_UP to true,
                 FEATURE_SLIDE_DOWN to true,
+                FEATURE_TERMINAL to true,
             ),
             options = mapOf(
                 KEY_MAX_ITEMS to 200,
@@ -242,6 +268,7 @@ class GboardHooker : AppHooker {
                 KEY_UP_MAP to DIGIT_ROW_MAP,
                 KEY_DOWN_MAP to SYMBOL_ROW_MAP,
                 KEY_SLIDE_LEVEL to 1,
+                KEY_TERMINAL_APPS to DEFAULT_TERMINAL_APPS,
             ),
         ),
     )
@@ -312,12 +339,18 @@ class GboardHooker : AppHooker {
         }
     }
 
+    private fun HookScope.installTerminal() {
+        val raw = string(KEY_TERMINAL_APPS, DEFAULT_TERMINAL_APPS).orEmpty()
+        GboardKeyboard.install(this, GboardKeyboard.parseApps(raw))
+    }
+
     private companion object {
         const val FEATURE_COUNT = "clip_count"
         const val FEATURE_TTL = "clip_ttl"
         const val FEATURE_CHARS = "clip_chars"
         const val FEATURE_SLIDE_UP = "slide_up"
         const val FEATURE_SLIDE_DOWN = "slide_down"
+        const val FEATURE_TERMINAL = "terminal_keyboard"
 
         const val KEY_MAX_ITEMS = "clip_max_items"
         const val KEY_TTL_MINUTES = "clip_ttl_minutes"
@@ -325,6 +358,25 @@ class GboardHooker : AppHooker {
         const val KEY_UP_MAP = "slide_up_map"
         const val KEY_DOWN_MAP = "slide_down_map"
         const val KEY_SLIDE_LEVEL = "slide_level"
+        const val KEY_TERMINAL_APPS = "terminal_apps"
+
+        /** Termux 的主程序、浮窗、X11 各是独立包，一条前缀规则全覆盖。 */
+        const val DEFAULT_TERMINAL_APPS = "com.termux*"
+
+        /**
+         * 选择器里置顶推荐的那几个 —— 都是把输入框声明成 `TYPE_NULL`、
+         * 因而会被 Gboard 当密码框的终端与 SSH 客户端。装了的才会出现在列表里。
+         */
+        val TERMINAL_APPS = listOf(
+            "com.termux",
+            "com.termux.window",
+            "com.termux.x11",
+            "com.offsec.nhterm",
+            "jackpal.androidterm",
+            "org.connectbot",
+            "com.server.auditor.ssh.client",
+            "com.sonelli.juicessh",
+        )
 
         /** 原版行为，功能没开时按它传。 */
         const val ORIGINAL_MAX_ITEMS = 5

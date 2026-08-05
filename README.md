@@ -79,7 +79,7 @@ class MyHooker : AppHooker {
 | zenneko | `io.github.wisyh.zenneko` | VIP 校验 + 原生环境自检 |
 | gameclick | `com.pbb.gameclick` | 登录回包 + 原生复核 + 定时联网校验 |
 | esj | `com.gx.sw.qa.fkssj004.esj` | 服务端权威，只做客户端侧：协议观察台 / 离线模式 |
-| gboard | `com.google.android.inputmethod.latin` | 剪贴板的三处硬限制 + 按键上下滑 |
+| gboard | `com.google.android.inputmethod.latin` | 剪贴板的三处硬限制 + 按键上下滑 + 终端不降级为密码键盘 |
 | bridgeaudio | `app.bridgeaudio` | 本地权益布尔 + PairIP 许可校验（后者才是冻结 Google 起不来的原因） |
 
 ## 构建

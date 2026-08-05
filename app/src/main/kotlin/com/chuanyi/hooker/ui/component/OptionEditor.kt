@@ -67,8 +67,8 @@ fun OptionEditDialog(
         is HookOption.Number -> rangeHint(option.min, option.max, option.unit)
         is HookOption.Choice -> option.custom?.let { rangeHint(it.min, it.max, it.unit) }.orEmpty()
         is HookOption.Text -> option.hint
-        // 映射表有自己的编辑器（KeyMapEditorSheet），走不到这里。
-        is HookOption.KeyMap -> ""
+        // 这两种有自己的编辑器（KeyMapEditorSheet / AppPickerSheet），走不到这里。
+        is HookOption.KeyMap, is HookOption.AppList -> ""
     }
 
     WindowDialog(
@@ -157,5 +157,5 @@ private fun quickValues(option: HookOption): List<Pair<String, Int>>? = when (op
         )
     }
 
-    is HookOption.Text, is HookOption.KeyMap -> null
+    is HookOption.Text, is HookOption.KeyMap, is HookOption.AppList -> null
 }

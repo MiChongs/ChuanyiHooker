@@ -41,6 +41,9 @@ internal object GboardDex {
     /** 清理过期项的那个 `Callable`。锚点是它出错时打的原始方法名。 */
     const val ANCHOR_CLEANER = "deleteExpiredItemsInternal"
 
+    /** `InputBundleManager.loadActiveInputBundleId()`：挑当前该用哪套键盘。 */
+    const val ANCHOR_ACTIVE_BUNDLE = "loadActiveInputBundleId"
+
     /**
      * 按类里出现过的字符串找类。
      *
@@ -89,6 +92,37 @@ internal object GboardDex {
         }?.apply {
             isAccessible = true
             remember(scope, "callable:$anchor", declaringClass.name)
+        }
+    }
+
+    /**
+     * 按方法体里出现过的字符串找方法。
+     *
+     * Flogger 的调用点把**原始方法名**当参数传了进去 ——
+     * `.j("com/…/InputBundleManager", "loadActiveInputBundleId", 552, "InputBundleManager.java")`
+     * 混淆之后这一行原样还在。所以类的 TAG 加上方法名这两个串合起来，
+     * 就是「某个类的某个方法」的稳定坐标，比方法名本身、比它在类里的位置都稳。
+     *
+     * [anchors] 全部命中才算（`usingStrings` 之间是与关系），[params] 再卡一道参数个数。
+     */
+    fun methodByStrings(scope: HookScope, params: Int, vararg anchors: String): Method? {
+        val key = "method:${anchors.joinToString("|")}"
+        cachedName(scope, key)?.split('#')?.takeIf { it.size == 2 }?.let { (owner, name) ->
+            scope.classOrNull(owner)
+                ?.declaredMethods
+                ?.firstOrNull { it.name == name && it.parameterCount == params }
+                ?.let { return it.apply { isAccessible = true } }
+        }
+        return scan(scope, "扫方法 ${anchors.last()}") { dex ->
+            dex.findMethod {
+                matcher {
+                    paramCount = params
+                    usingStrings(anchors.toList())
+                }
+            }.firstOrNull()?.getMethodInstance(scope.classLoader)
+        }?.apply {
+            isAccessible = true
+            remember(scope, key, "${declaringClass.name}#$name")
         }
     }
 

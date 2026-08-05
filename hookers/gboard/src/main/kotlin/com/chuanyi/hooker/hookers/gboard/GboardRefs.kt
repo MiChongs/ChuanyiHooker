@@ -3,6 +3,8 @@ package com.chuanyi.hooker.hookers.gboard
 import android.content.Context
 import android.database.Cursor
 import android.net.Uri
+import android.text.InputType
+import android.view.inputmethod.EditorInfo
 import com.chuanyi.hooker.core.HookScope
 import java.lang.reflect.Constructor
 import java.lang.reflect.Field
@@ -161,6 +163,59 @@ internal class GboardRefs private constructor(private val scope: HookScope) {
             }
     }
 
+    // --- 输入框类型 ---------------------------------------------------------
+
+    /**
+     * `EditorInfoUtil`：二十多个「这个输入框是不是某某类型」的静态谓词。
+     *
+     * 验证条件取这类谓词的数量 —— R8 的共享类身上也可能带着这个 TAG，
+     * 但不会同时带一批 `(EditorInfo) -> boolean`。
+     */
+    private val editorInfoUtil: Class<*> by lazy {
+        GboardDex.classByString(scope, TAG_EDITOR_INFO_UTIL) { it.editorPredicates().size >= 5 }
+            ?: error("找不到 EditorInfo 工具类")
+    }
+
+    /**
+     * `isTypeNull(EditorInfo)` —— `editorInfo == null || editorInfo.inputType == 0`。
+     *
+     * 这个类里同签名的谓词有二十多个，名字全被混淆了，也没有字符串可当锚点，
+     * 所以按**行为**认：其余谓词一律写成 `editorInfo == null ? false : …`，
+     * 只有它**对 null 返回 true**。再补三个探针把 inputType 那一半也钉死，
+     * 四点合起来唯一。
+     */
+    val isTypeNull: Method by lazy {
+        val probes = listOf(
+            null to true,
+            EditorInfo() to true, // inputType 默认就是 TYPE_NULL
+            EditorInfo().apply { inputType = InputType.TYPE_CLASS_TEXT } to false,
+            EditorInfo().apply { inputType = InputType.TYPE_CLASS_NUMBER } to false,
+        )
+        editorInfoUtil.editorPredicates().firstOrNull { method ->
+            runCatching {
+                probes.all { (arg, want) -> method.invoke(null, *arrayOf<Any?>(arg)) == want }
+            }.getOrDefault(false)
+        } ?: error("认不出「输入框类型为空」的判断")
+    }
+
+    /**
+     * `InputBundleManager.loadActiveInputBundleId()`：挑当前该用哪套键盘。
+     *
+     * 它无参，而同一个类里另一个无参方法返回的是同一个类型（当前已选中的那套），
+     * 光看签名分不开 —— 所以用它日志里的原始方法名定位。
+     */
+    val loadActiveBundle: Method by lazy {
+        GboardDex.methodByStrings(
+            scope, 0, TAG_INPUT_BUNDLE_MANAGER, GboardDex.ANCHOR_ACTIVE_BUNDLE,
+        ) ?: error("找不到键盘选择方法")
+    }
+
+    private fun Class<*>.editorPredicates(): List<Method> = declaredMethods.filter {
+        Modifier.isStatic(it.modifiers) && !it.isSynthetic &&
+            it.returnType == Boolean::class.javaPrimitiveType &&
+            it.parameterTypes.contentEquals(arrayOf(EditorInfo::class.java))
+    }.onEach { it.isAccessible = true }
+
     // --- 键盘按键 -----------------------------------------------------------
     // 这一层没混淆：moshi 适配器要按名字反射，类名原样保留。
 
@@ -285,6 +340,11 @@ internal class GboardRefs private constructor(private val scope: HookScope) {
         /** Flogger 在类里留下的原始全限定名。类名会变，这个串不会。 */
         private const val TAG_CP_UTILS =
             "com/google/android/apps/inputmethod/libs/clipboard/ClipboardContentProviderUtils"
+
+        private const val TAG_EDITOR_INFO_UTIL =
+            "com/google/android/libraries/inputmethod/editorinfo/EditorInfoUtil"
+        private const val TAG_INPUT_BUNDLE_MANAGER =
+            "com/google/android/libraries/inputmethod/inputbundle/InputBundleManager"
 
         /** 剪贴板字数上限的 flag 名，同时也是它所在类的锚点。 */
         const val FLAG_CHAR_LIMIT = "text_clip_item_char_limit"

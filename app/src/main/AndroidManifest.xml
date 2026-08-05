@@ -17,11 +17,13 @@
         exactly like it brings its META-INF/xposed/scope.list. Nothing to
         maintain by hand at this level.
 
-        <queries> is the whole story on stock Android, which is why
-        QUERY_ALL_PACKAGES is deliberately NOT declared — the app only ever looks
-        up the specific packages its hookers claim, and the broad permission would
-        buy nothing.
+        Those <queries> entries cover looking up a *known* package. They cannot
+        cover HookOption.AppList, which asks the user to pick from whatever is
+        installed — the set is not known ahead of time, and getInstalledApplications
+        returns only the visible slice without this permission, so the picker would
+        show a near-empty list. QUERY_ALL_PACKAGES is the only API that answers it.
     -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <!--
         MIUI / HyperOS / ColorOS / OneUI gate the installed-app list behind an

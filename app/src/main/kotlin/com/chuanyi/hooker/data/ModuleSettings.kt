@@ -233,7 +233,7 @@ class ModuleSettings private constructor(context: Context) {
     fun valueOf(hookerId: String, option: HookOption): Int = when (option) {
         is HookOption.Number -> option.coerce(optionInt(hookerId, option.key, option.default))
         is HookOption.Choice -> optionInt(hookerId, option.key, option.default)
-        is HookOption.Text, is HookOption.KeyMap -> 0
+        is HookOption.Text, is HookOption.KeyMap, is HookOption.AppList -> 0
     }
 
     /** 渲染给界面看的当前值，例如 10080 -> "7 天"。 */
@@ -245,12 +245,15 @@ class ModuleSettings private constructor(context: Context) {
         is HookOption.KeyMap -> option.parse(optionText(hookerId, option.key, option.default))
             .size
             .let { if (it == 0) "未设置" else "$it 个键" }
+        // 同理：应用列表只报数量，一个的时候直接把它显示出来。
+        is HookOption.AppList -> option.describe(optionText(hookerId, option.key, option.default))
     }
 
     /** 编辑框里的原始值。数字项不带单位，文本项原样。 */
     fun rawOf(hookerId: String, option: HookOption): String = when (option) {
         is HookOption.Text -> optionText(hookerId, option.key, option.default)
         is HookOption.KeyMap -> optionText(hookerId, option.key, option.default)
+        is HookOption.AppList -> optionText(hookerId, option.key, option.default)
         else -> valueOf(hookerId, option).toString()
     }
 
@@ -272,7 +275,8 @@ class ModuleSettings private constructor(context: Context) {
                 setOptionInt(hookerId, option.key, option.custom?.coerce(parsed) ?: parsed)
             }
 
-            is HookOption.Text, is HookOption.KeyMap -> setOptionText(hookerId, option.key, input.trim())
+            is HookOption.Text, is HookOption.KeyMap, is HookOption.AppList ->
+                setOptionText(hookerId, option.key, input.trim())
         }
     }
 
@@ -307,6 +311,7 @@ class ModuleSettings private constructor(context: Context) {
                         is HookOption.Choice -> editor.putInt(key, option.default)
                         is HookOption.Text -> editor.putString(key, option.default)
                         is HookOption.KeyMap -> editor.putString(key, option.default)
+                        is HookOption.AppList -> editor.putString(key, option.default)
                     }
                 }
             }
@@ -326,6 +331,9 @@ class ModuleSettings private constructor(context: Context) {
                     (preset.options[option.key] as? String ?: option.default)
 
                 is HookOption.KeyMap -> optionText(hooker.id, option.key, option.default) ==
+                    (preset.options[option.key] as? String ?: option.default)
+
+                is HookOption.AppList -> optionText(hooker.id, option.key, option.default) ==
                     (preset.options[option.key] as? String ?: option.default)
 
                 is HookOption.Number -> valueOf(hooker.id, option) ==

@@ -19,7 +19,9 @@ package com.chuanyi.hooker.core
  * |---|---|---|
  * | [Choice] | 常用值就那么几个（有效期、灵敏度） | 下拉选择，可带「自定义」 |
  * | [Number] | 连续量，需要来回试（条数） | 滑块，点住标题可精确输入 |
- * | [Text] | 自由文本（按键映射表） | 弹窗里的输入框 |
+ * | [Text] | 自由文本 | 弹窗里的输入框 |
+ * | [AppList] | 一组应用 | 可搜索的应用列表，勾选 |
+ * | [KeyMap] | 按键 -> 输出什么 | 一张能点的键盘 |
  */
 sealed interface HookOption {
 
@@ -92,6 +94,54 @@ sealed interface HookOption {
             entries.firstOrNull { it.value == value }?.label
                 ?: custom?.render?.invoke(value)
                 ?: value.toString()
+    }
+
+    /**
+     * 一组应用包名。
+     *
+     * 存的还是一行文本（逗号分隔），但**不该拿这行去问用户**：包名既记不住又容易
+     * 打错 —— `com.termux` 和 `com.termux.window` 只差一截，错一个字符就是静默失效。
+     * 界面上给的是本机装了哪些应用，勾选即可。
+     *
+     * 手填的能力保留着：目标还没装、或者要写 `com.termux*` 这样的前缀规则时用得上，
+     * 所以解析出来的条目**不保证是已安装的包**，使用方要自己处理匹配。
+     *
+     * [suggested] 是这个功能最可能要选的那几个，界面上单独置顶一段 —— 否则用户得在
+     * 两三百个应用里自己找。
+     * [emptyMeansAll] 说明空集合怎么解释：有的功能空 = 全部生效，有的空 = 谁都不生效。
+     */
+    class AppList(
+        override val key: String,
+        override val title: String,
+        override val summary: String = "",
+        override val featureId: String? = null,
+        override val requiresRestart: Boolean = true,
+        val default: String = "",
+        val suggested: List<String> = emptyList(),
+        val emptyMeansAll: Boolean = false,
+    ) : HookOption {
+
+        /** 分隔符宽松些，手填时不必较真。去重但保序。 */
+        fun parse(raw: String): List<String> = raw
+            .split(',', '，', ';', '；', '\n', ' ')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+
+        fun format(packages: Collection<String>): String = packages.distinct().joinToString(", ")
+
+        /** 行尾显示什么。铺开所有包名会把行撑爆，多于一个就只报数量。 */
+        fun describe(raw: String): String {
+            val picked = parse(raw)
+            return when {
+                picked.isEmpty() -> if (emptyMeansAll) "全部应用" else "未选择"
+                picked.size == 1 -> picked.first()
+                else -> "${picked.size} 项"
+            }
+        }
+
+        /** 末尾 `*` 是前缀规则，不是某个具体的包。 */
+        fun isPattern(entry: String): Boolean = entry.endsWith('*')
     }
 
     /** 一段文本。空串表示「没设置」，由 [render] 决定怎么显示。 */
