@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Chuanyi Hooker</string>
+    <!-- 显示在 LSPosed 的模块列表里，用户能看到，所以写中文、不写技术栈。 -->
+    <string name="xposed_description">按应用逐个解锁：为每个目标应用提供一组可单独开关的功能。</string>
+</resources>

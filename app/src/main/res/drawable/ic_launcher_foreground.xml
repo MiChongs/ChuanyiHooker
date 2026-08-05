@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    鱼钩。同时用作 <monochrome> 图层，所以只用一种颜色、笔画够粗（系统给主题图标
+    上色时只取 alpha，细笔画在小尺寸下会糊掉）。
+
+    ## 坐标怎么来的
+
+    形状先在「自然坐标」里按几何算准，再靠下面那个 <group> 平移到画布中心。
+    居中这件事因此只有一个可调处，不必把偏移量揉进每条 pathData。
+
+    自然坐标下的构造（画布 108×108，钩子轴线在 x=54）：
+
+        钩眼    圆心 (54,31)  半径 7   笔宽 7  ->  外径 10.5
+        竖杆    (54,38) -> (54,66)             起点落在钩眼笔画带内(34.5~41.5)，接缝隐形
+        弯钩    圆心 (43,66)  半径 11          与竖杆在 (54,66) 相切
+        钩尖    弯钩终点起，实心三角，收成尖
+
+    弯钩的圆弧：从 θ=0°（即 (54,66)）沿 θ 增大方向扫到 θ=215°，
+    终点 = (43+11·cos215°, 66+11·sin215°) = (34.0, 59.7)。
+    扫过 215° > 180°，所以 large-arc-flag=1；沿 θ 增大方向，所以 sweep-flag=1。
+    这两个标志位一起把圆心唯一确定在 (43,66) —— 原来的图标就是错在这里，
+    (1,0) 解出来的圆心是 (42,58)，弯朝上翻并且和竖杆重叠。
+
+    钩尖不用描边而用实心三角：描边只能等宽，收不出尖；三角的底边正好等于笔宽(7)，
+    与圆弧末端的圆头帽重叠，接缝看不出来。
+
+    ## 居中
+
+    自然坐标下的包围盒（含笔宽）：
+        x  28.5 .. 64.5   中心 46.5
+        y  20.5 .. 80.5   中心 50.5
+    平移 (+7.5, +3.5) 后中心落在 (54,54)。
+
+    ## 安全区
+
+    平移后离画布中心最远的是钩眼外沿：
+        |(61.5,34.5) - (54,54)| + 10.5 = 20.9 + 10.5 = 31.4
+    弯钩外沿：
+        |(50.5,69.5) - (54,54)| + 14.5 = 15.9 + 14.5 = 30.4
+    都在 66dp 安全圆（半径 33）内，也都在 72dp 可见方框（18..90）内。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:translateX="7.5"
+        android:translateY="3.5">
+
+        <!-- 钩眼：两段半圆拼成整圆。两端点间距 14 正好等于 2r，是精确的半圆，
+             不会触发 SVG 的「半径不足时自动放大」规则。 -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M47,31 A7,7 0 0,1 61,31 A7,7 0 0,1 47,31 Z"
+            android:strokeColor="#7AA2F7"
+            android:strokeWidth="7" />
+
+        <!-- 竖杆 + 弯钩，一笔连续 -->
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M54,38 L54,66 A11,11 0 1,1 34,59.7"
+            android:strokeColor="#7AA2F7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:strokeWidth="7" />
+
+        <!-- 钩尖。底边两端 = 弯钩终点 (34,59.7) 沿法线 ±3.5，顶点 = 沿切线前进 13。 -->
+        <path
+            android:fillColor="#7AA2F7"
+            android:pathData="M36.9,61.7 L31.1,57.7 L41.5,49 Z" />
+
+    </group>
+</vector>

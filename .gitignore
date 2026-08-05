@@ -1,0 +1,31 @@
+*.iml
+.gradle/
+.kotlin/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+!gradle/wrapper/gradle-wrapper.jar
+
+# 签名：私钥和口令都不进仓库。凭据格式见 keystore.properties.example。
+*.keystore
+*.jks
+keystore/
+keystore.properties
+
+# 逆向作业目录：每个 case 是 jadx / unflutter 的全量反编译输出，单个几百 MB，
+# 全部是可以从目标 APK 重新生成的派生物。跟着仓库走没有意义，只会让 clone 变成
+# 几个 GB，也会让 `git status` 每次去遍历二十几万个文件。
+work/
+artifacts/
+
+# patcher 的 Python 工具
+__pycache__/
+*.py[cod]
+
+# Claude Code 的本机权限设置（每台机器不一样）
+.claude/settings.local.json

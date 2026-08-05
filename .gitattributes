@@ -1,0 +1,24 @@
+# 仓库里一律存 LF。这台机器是 Windows，不钉住的话 gradlew 迟早会带着 CRLF 进库，
+# 在 Linux / CI 上就是 `bad interpreter: /bin/sh^M`。
+#
+# eol=lf 不能省：全局 core.autocrlf=true 会在**检出**时把工作区改成 CRLF，而这份
+# 源码同时被 WSL 侧读写，一次检出就能让整棵树看起来全被改过。写死 lf，两边看到的
+# 字节完全一样。批处理是例外，cmd 那边留 CRLF。
+* text=auto eol=lf
+
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+*.jar binary
+*.so binary
+*.a binary
+*.apk binary
+*.dex binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.ttf binary
+*.keystore binary
+*.jks binary

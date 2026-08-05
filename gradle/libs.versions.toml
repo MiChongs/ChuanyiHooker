@@ -1,0 +1,121 @@
+[versions]
+agp = "9.3.1"
+kotlin = "2.4.10"
+
+# Xposed / hook stack
+libxposed = "102.0.0"
+ezhooktool = "1.1.3"
+# 统一反射。1.1.0 起拆包，Android 上必须额外带 kavaref-android，
+# 否则编译能过、运行时 clinit 就 NoClassDefFoundError。
+kavaref = "1.1.0"
+# 运行时 dex 扫描。R8 重命名后按**特征串**找类/方法，比写死重命名结果稳。
+dexkit = "2.2.0"
+
+# UI
+miuix = "0.9.3"
+composeBom = "2026.06.01"
+activityCompose = "1.13.0"
+coreKtx = "1.19.0"
+lifecycle = "2.11.0"
+annotationJvm = "1.10.0"
+
+# Navigation 3 —— miuix-navigation3-ui 0.9.3 是 androidx Navigation3 的 KMP 移植，
+# 它只提供 UI 层（NavDisplay / Scene），运行时（NavKey / NavBackStack /
+# entryProvider）要另外引 androidx 的 navigation3-runtime。版本对齐 miuix 自身依赖。
+navigation3 = "1.1.4"
+kotlinxSerialization = "1.11.0"
+coil = "3.5.0"
+
+# 开源许可清单。Gradle 插件在构建期遍历依赖图并把 pom 元数据 + SPDX 许可全文写成
+# res/raw/aboutlibraries.json，运行时只用 -core 解析。官方还有 compose-m3 界面包，
+# 这里不引：那是 Material 3 长相，跟 miuix 混在一起会很突兀，列表自己画。
+# 15.0.4 起支持 AGP 9 / Kotlin 2.4，插件本身要求 AGP >= 8.13。
+aboutlibraries = "15.0.4"
+
+# 权限
+xxpermissions = "28.3"
+# XXPermissions 的运行时依赖，官方要求显式声明
+devicecompat = "2.6"
+
+# root shell。只用 :core（Shell / Shell.Job / Shell.Result），不引 :io / :service ——
+# 那两个是给 RootService（跨进程 AIDL）和远程文件 IO 用的，这里只需要执行 am 命令。
+libsu = "6.0.0"
+
+[libraries]
+# --- Xposed ---
+libxposed-api = { module = "io.github.libxposed:api", version.ref = "libxposed" }
+# Module-app side: writable remote preferences + scope/hot-reload control.
+libxposed-service = { module = "io.github.libxposed:service", version.ref = "libxposed" }
+ezhooktool-core = { module = "io.github.lingqiqi5211.ezhooktool:core", version.ref = "ezhooktool" }
+ezhooktool-xposed102 = { module = "io.github.lingqiqi5211.ezhooktool:hook-xposed-102", version.ref = "ezhooktool" }
+
+# --- 反射 ---
+kavaref-core = { module = "com.highcapable.kavaref:kavaref-core", version.ref = "kavaref" }
+kavaref-extension = { module = "com.highcapable.kavaref:kavaref-extension", version.ref = "kavaref" }
+kavaref-android = { module = "com.highcapable.kavaref:kavaref-android", version.ref = "kavaref" }
+
+# --- dex 扫描 ---
+# 自带 libdexkit.so（4 个 ABI，静态链接 libc++，不额外拖 libc++_shared）。
+dexkit = { module = "org.luckypray:dexkit", version.ref = "dexkit" }
+
+# --- AndroidX ---
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-annotation-jvm = { module = "androidx.annotation:annotation-jvm", version.ref = "annotationJvm" }
+androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+
+# --- 权限 ---
+xxpermissions = { module = "com.github.getActivity:XXPermissions", version.ref = "xxpermissions" }
+devicecompat = { module = "com.github.getActivity:DeviceCompat", version.ref = "devicecompat" }
+
+# --- root shell ---
+libsu-core = { module = "com.github.topjohnwu.libsu:core", version.ref = "libsu" }
+
+# --- Compose ---
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-foundation = { module = "androidx.compose.foundation:foundation" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+
+# --- Miuix ---
+miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui", version.ref = "miuix" }
+miuix-preference = { module = "top.yukonga.miuix.kmp:miuix-preference", version.ref = "miuix" }
+miuix-icons = { module = "top.yukonga.miuix.kmp:miuix-icons", version.ref = "miuix" }
+miuix-navigation3-ui = { module = "top.yukonga.miuix.kmp:miuix-navigation3-ui", version.ref = "miuix" }
+miuix-squircle = { module = "top.yukonga.miuix.kmp:miuix-squircle", version.ref = "miuix" }
+# 注意：miuix-blur 的 manifest 硬写 minSdkVersion=33（RuntimeShader 的下限），
+# 需要在 app manifest 里 overrideLibrary，并在运行时用 isRuntimeShaderSupported() 门控。
+miuix-blur = { module = "top.yukonga.miuix.kmp:miuix-blur", version.ref = "miuix" }
+miuix-shader = { module = "top.yukonga.miuix.kmp:miuix-shader", version.ref = "miuix" }
+
+# --- 图片加载 ---
+# 用 -core 而不是完整的 coil-compose：ImageLoader 显式传给 AsyncImage，
+# 不碰全局单例。Xposed 模块的 Application 类位置敏感，能不装单例就不装。
+coil-compose-core = { module = "io.coil-kt.coil3:coil-compose-core", version.ref = "coil" }
+
+# --- Navigation 3 ---
+navigation3-runtime = { module = "androidx.navigation3:navigation3-runtime", version.ref = "navigation3" }
+# 每个返回栈条目一份独立的 ViewModelStore，出栈时自动清掉（不是配置变更时清）。
+# 版本跟 lifecycle 走：它和 lifecycle-runtime 是同一次发布出来的，错开会拿到两份
+# ViewModelStoreOwner 定义。
+lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecycle-viewmodel-navigation3", version.ref = "lifecycle" }
+kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serialization-core", version.ref = "kotlinxSerialization" }
+
+# --- 开源许可 ---
+# 只要数据层：Libs / Library / License 三个模型加一个解析器。Android 源集里的
+# 解析走 org.json，不经过 kotlinx-serialization 的反射路径，R8 不用额外开洞。
+aboutlibraries-core = { module = "com.mikepenz:aboutlibraries-core", version.ref = "aboutlibraries" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+# `.android` 变体（不是裸的 aboutlibraries.plugin）：它按 variant 注册
+# prepareLibraryDefinitions<Variant>，并把产物目录挂进该 variant 的 res 源集，
+# 所以代码里能直接引 R.raw.aboutlibraries，不用手工拷 json。
+aboutlibraries-android = { id = "com.mikepenz.aboutlibraries.plugin.android", version.ref = "aboutlibraries" }

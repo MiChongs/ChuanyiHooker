@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Package visibility for this hooker's target. See the note in the hills
+        module: declaring it here keeps "add a module, get its visibility"
+        symmetrical with scope.list instead of relying on a hand-maintained list
+        in :app.
+
+        Keep in sync with src/main/resources/META-INF/xposed/scope.list.
+    -->
+    <queries>
+        <package android:name="dev.hemanths.paisa" />
+    </queries>
+
+</manifest>

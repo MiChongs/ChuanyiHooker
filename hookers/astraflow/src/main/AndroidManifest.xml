@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Package visibility for this hooker's target.
+
+        Only the app itself needs declaring — the rest of the scope is system
+        packages the Apps screen never asks about.
+
+        Keep in sync with src/main/resources/META-INF/xposed/scope.list.
+    -->
+    <queries>
+        <package android:name="com.astraflow.tool" />
+    </queries>
+
+</manifest>

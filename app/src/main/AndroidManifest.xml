@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        miuix-blur 的 manifest 硬写 minSdkVersion=33，因为它整套效果都建立在
+        RuntimeShader 上，而那是 API 33 才有的。模块本身要覆盖 Android 9+，
+        不能为了毛玻璃把三个大版本的用户砍掉，所以这里覆盖掉它的下限，改由
+        运行时的 isRuntimeShaderSupported() 门控（官方文档给的就是这个做法）。
+        API 28-32 上所有 blur 代码路径都不会被执行，退化成不透明背景。
+    -->
+    <uses-sdk tools:overrideLibrary="top.yukonga.miuix.kmp.blur" />
+
+    <!--
+        Package visibility is contributed by each hooker module's own manifest
+        and merged in here, so a new hooker brings its <queries> entry with it
+        exactly like it brings its META-INF/xposed/scope.list. Nothing to
+        maintain by hand at this level.
+
+        <queries> is the whole story on stock Android, which is why
+        QUERY_ALL_PACKAGES is deliberately NOT declared — the app only ever looks
+        up the specific packages its hookers claim, and the broad permission would
+        buy nothing.
+    -->
+
+    <!--
+        MIUI / HyperOS / ColorOS / OneUI gate the installed-app list behind an
+        OEM runtime permission that has no AOSP equivalent, and deny it silently:
+        getPackageInfo throws NameNotFoundException for an app that is installed.
+        XXPermissions models it as GetInstalledAppsPermission and reports it as
+        already granted on ROMs that do not implement it, so the request is a
+        no-op on stock. This is the only runtime permission the module needs.
+    -->
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:description="@string/xposed_description"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.ChuanyiHooker"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            Legacy Xposed discovery keys. libxposed 102 reads
+            META-INF/xposed/module.prop instead, but some managers still list
+            modules by these, and they cost nothing.
+        -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="102" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="@string/xposed_description" />
+
+        <!--
+            io.github.libxposed.service contributes its XposedProvider through
+            manifest merging; do not declare it here as well.
+        -->
+    </application>
+
+</manifest>

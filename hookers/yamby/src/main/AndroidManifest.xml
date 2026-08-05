@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Package visibility for this hooker's target.
+
+        On API 30+ getPackageInfo is filtered out unless the caller declares the
+        package, so without this the Apps screen reports an installed target as
+        "not installed". Declaring it here rather than in :app means adding a
+        hooker module brings its own visibility along, the same way it already
+        brings its own META-INF/xposed/scope.list.
+
+        Keep in sync with src/main/resources/META-INF/xposed/scope.list.
+    -->
+    <queries>
+        <package android:name="com.hush.yamby" />
+    </queries>
+
+</manifest>
