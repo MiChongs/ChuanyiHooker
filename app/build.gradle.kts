@@ -404,6 +404,7 @@ dependencies {
     implementation(project(":hookers:womic"))
     implementation(project(":hookers:airmusic"))
     implementation(project(":hookers:gboard"))
+    implementation(project(":hookers:bridgeaudio"))
     // ---------------------------------------------------------------------
 
     compileOnly(libs.libxposed.api)
