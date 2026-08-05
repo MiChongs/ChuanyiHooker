@@ -13,10 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
+import com.chuanyi.hooker.data.CommunityInvite
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.ui.component.BlurScaffold
+import com.chuanyi.hooker.ui.component.CommunityInviteDialog
 import com.chuanyi.hooker.ui.component.HookerTopAppBar
 import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.NavigationBar
@@ -41,6 +44,10 @@ fun HomeScreen(settings: ModuleSettings) {
     val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
     val scope = rememberCoroutineScope()
     val currentTab by remember { derivedStateOf { HomeTab.entries[pagerState.currentPage] } }
+
+    // 弹不弹在进程第一次取到这个单例时就已经定了，这里只是把答案接过来。
+    val context = LocalContext.current
+    val invite = remember(context) { CommunityInvite.get(context) }
 
     // 不在首个页签时，返回键先回到首个页签，而不是直接退出应用。
     // NavDisplay 只在栈深 > 1 时拦截返回，首页这一层是空着的，正好接管。
@@ -99,6 +106,10 @@ fun HomeScreen(settings: ModuleSettings) {
             }
         }
     }
+
+    // 挂在 BlurScaffold **外面**：它自己开窗口，不占布局，也就不会被 body 那层毛玻璃
+    // 采样层录进去。不显示时一个布局节点都不产生。
+    CommunityInviteDialog(invite)
 }
 
 enum class HomeTab(val title: String) {

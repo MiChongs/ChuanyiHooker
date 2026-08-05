@@ -1,9 +1,5 @@
 package com.chuanyi.hooker.ui.screen
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -17,8 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.chuanyi.hooker.BuildConfig
@@ -26,6 +20,7 @@ import com.chuanyi.hooker.core.ModuleStatus
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.nativehook.NativeHook
 import com.chuanyi.hooker.ui.component.AppIcon
+import com.chuanyi.hooker.ui.component.CommunityLinkRows
 import com.chuanyi.hooker.ui.component.FooterNote
 import com.chuanyi.hooker.ui.component.rememberAppIconLoader
 import com.chuanyi.hooker.ui.model.rememberOpenSourceLibraries
@@ -38,17 +33,6 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-
-/** 版本发布与改动说明。 */
-private const val TELEGRAM_CHANNEL = "https://t.me/chuanyi_hooker"
-
-/** 讨论群。`+` 开头的是邀请链接，不是公开用户名，不能改写成 `t.me/xxx` 的形式。 */
-private const val TELEGRAM_GROUP = "https://t.me/+7VEAJBoyOzgxZDU1"
-
-/** 需求收集表（Notion）。 */
-private const val FEATURE_REQUEST =
-    "https://app.notion.com/p/3b376f30c0a4802f9238cb1533c5bf6a" +
-        "?v=3b376f30c0a48027b62b000c053c6d31&source=copy_link"
 
 /**
  * 关于页同时兼作「高级」：框架版本、原生层、日志开关这些排查用的东西都在这儿，
@@ -64,8 +48,6 @@ fun AboutScreen(
     modifier: Modifier = Modifier,
 ) {
     val navigator = LocalNavigator.current
-    val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
 
     val probedFramework = remember { ModuleStatus.frameworkName() }
     val nativeReady = remember { NativeHook.isAvailable }
@@ -126,24 +108,12 @@ fun AboutScreen(
             }
         }
 
+        // 跟启动时那个邀请弹窗是同一份内容（见 CommunityLinks）：那边点过一次，
+        // 回到这里就知道该找哪一块。
         item { SmallTitle("社区") }
         item {
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                ArrowPreference(
-                    title = "Telegram 频道",
-                    summary = "版本发布与改动说明",
-                    onClick = { openLink(context, uriHandler, TELEGRAM_CHANNEL) },
-                )
-                ArrowPreference(
-                    title = "讨论群",
-                    summary = "用法、适配情况、踩到的坑",
-                    onClick = { openLink(context, uriHandler, TELEGRAM_GROUP) },
-                )
-                ArrowPreference(
-                    title = "需求提交",
-                    summary = "想支持哪个应用、想要哪个功能，写在这里",
-                    onClick = { openLink(context, uriHandler, FEATURE_REQUEST) },
-                )
+                CommunityLinkRows()
             }
         }
 
@@ -174,22 +144,6 @@ fun AboutScreen(
 
         item { FooterNote("日志用 logcat 看，标签 ChuanyiHooker。") }
     }
-}
-
-/**
- * 打开外部链接。
- *
- * `openUri` 在找不到能处理这个 Intent 的应用时会抛（AndroidUriHandler 把
- * ActivityNotFoundException 包成 IllegalArgumentException），点了毫无反应是最难受的
- * 失败形态 —— 所以退到「复制到剪贴板」并提示一声：链接本身贴到别处仍然有用，尤其是
- * 那两条 Telegram，很多人是想发给别的设备打开。
- */
-private fun openLink(context: Context, uriHandler: UriHandler, url: String) {
-    if (runCatching { uriHandler.openUri(url) }.isSuccess) return
-
-    context.getSystemService(ClipboardManager::class.java)
-        ?.setPrimaryClip(ClipData.newPlainText("链接", url))
-    Toast.makeText(context, "没有能打开链接的应用，已复制到剪贴板", Toast.LENGTH_SHORT).show()
 }
 
 /**
