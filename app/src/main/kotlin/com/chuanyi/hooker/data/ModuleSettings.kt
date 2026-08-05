@@ -6,6 +6,9 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.chuanyi.hooker.core.AppHooker
+import com.chuanyi.hooker.core.HookOption
+import com.chuanyi.hooker.core.HookPreset
 import com.chuanyi.hooker.core.SettingsKeys
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
@@ -162,6 +165,33 @@ class ModuleSettings private constructor(context: Context) {
 
     fun toggle(key: String, default: Boolean) = setBoolean(key, !getBoolean(key, default))
 
+    /** 同 [getBoolean]：实参那次 [revision] 读取才是重组的依据，函数体不用它。 */
+    fun getInt(key: String, default: Int): Int = readInt(revision, key, default)
+
+    private fun readInt(
+        @Suppress("UNUSED_PARAMETER") at: Int,
+        key: String,
+        default: Int,
+    ): Int = runCatching { reader().getInt(key, default) }.getOrDefault(default)
+
+    fun setInt(key: String, value: Int) {
+        runCatching { reader().edit().putInt(key, value).apply() }
+        revision++
+    }
+
+    fun getString(key: String, default: String): String = readString(revision, key, default)
+
+    private fun readString(
+        @Suppress("UNUSED_PARAMETER") at: Int,
+        key: String,
+        default: String,
+    ): String = runCatching { reader().getString(key, default) ?: default }.getOrDefault(default)
+
+    fun setString(key: String, value: String) {
+        runCatching { reader().edit().putString(key, value).apply() }
+        revision++
+    }
+
     // --- typed helpers used by the screens ---------------------------------
 
     var masterEnabled: Boolean
@@ -183,6 +213,129 @@ class ModuleSettings private constructor(context: Context) {
 
     fun setFeatureEnabled(hookerId: String, featureId: String, value: Boolean) =
         setBoolean(SettingsKeys.feature(hookerId, featureId), value)
+
+    // --- hooker 的取值设置（HookOption）------------------------------------
+    // 键的拼法必须和 hook 侧的 HookScope.int / string 完全一致，都走 SettingsKeys.value。
+
+    fun optionInt(hookerId: String, key: String, default: Int): Int =
+        getInt(SettingsKeys.value(hookerId, key), default)
+
+    fun setOptionInt(hookerId: String, key: String, value: Int) =
+        setInt(SettingsKeys.value(hookerId, key), value)
+
+    fun optionText(hookerId: String, key: String, default: String): String =
+        getString(SettingsKeys.value(hookerId, key), default)
+
+    fun setOptionText(hookerId: String, key: String, value: String) =
+        setString(SettingsKeys.value(hookerId, key), value)
+
+    /** 当前取值（数值项）。 */
+    fun valueOf(hookerId: String, option: HookOption): Int = when (option) {
+        is HookOption.Number -> option.coerce(optionInt(hookerId, option.key, option.default))
+        is HookOption.Choice -> optionInt(hookerId, option.key, option.default)
+        is HookOption.Text, is HookOption.KeyMap -> 0
+    }
+
+    /** 渲染给界面看的当前值，例如 10080 -> "7 天"。 */
+    fun displayOf(hookerId: String, option: HookOption): String = when (option) {
+        is HookOption.Number -> option.render(valueOf(hookerId, option))
+        is HookOption.Choice -> option.labelOf(valueOf(hookerId, option))
+        is HookOption.Text -> option.render(optionText(hookerId, option.key, option.default))
+        // 映射表的当前值是「设了几个键」，把整串铺开会把行撑爆。
+        is HookOption.KeyMap -> option.parse(optionText(hookerId, option.key, option.default))
+            .size
+            .let { if (it == 0) "未设置" else "$it 个键" }
+    }
+
+    /** 编辑框里的原始值。数字项不带单位，文本项原样。 */
+    fun rawOf(hookerId: String, option: HookOption): String = when (option) {
+        is HookOption.Text -> optionText(hookerId, option.key, option.default)
+        is HookOption.KeyMap -> optionText(hookerId, option.key, option.default)
+        else -> valueOf(hookerId, option).toString()
+    }
+
+    /**
+     * 写回用户填的东西。
+     *
+     * 数字项**夹回上下界而不是拒收**：填 999 的意思是「要最大」，不是「填错了」。
+     * 整个填空则回到默认值 —— 清空一个数字输入框是最自然的「我不要自定义了」。
+     */
+    fun writeOption(hookerId: String, option: HookOption, input: String) {
+        when (option) {
+            is HookOption.Number -> {
+                val parsed = input.trim().toIntOrNull() ?: option.default
+                setOptionInt(hookerId, option.key, option.coerce(parsed))
+            }
+
+            is HookOption.Choice -> {
+                val parsed = input.trim().toIntOrNull() ?: option.default
+                setOptionInt(hookerId, option.key, option.custom?.coerce(parsed) ?: parsed)
+            }
+
+            is HookOption.Text, is HookOption.KeyMap -> setOptionText(hookerId, option.key, input.trim())
+        }
+    }
+
+    fun writeOption(hookerId: String, option: HookOption, value: Int) {
+        setOptionInt(hookerId, option.key, (option as? HookOption.Number)?.coerce(value) ?: value)
+    }
+
+    // --- 预设 --------------------------------------------------------------
+
+    /**
+     * 套用一套预设。
+     *
+     * **全量覆盖**：预设没提到的项回到 hooker 声明的默认值，而不是保留现状 ——
+     * 否则「换一个预设」的结果会取决于之前是什么状态，用户没法预期。
+     *
+     * 一次事务写完再 `revision++`，界面只重组一次。
+     */
+    fun applyPreset(hooker: AppHooker, preset: HookPreset) {
+        runCatching {
+            val editor = reader().edit()
+            hooker.features.forEach { feature ->
+                val on = preset.features[feature.id] ?: feature.defaultEnabled
+                editor.putBoolean(SettingsKeys.feature(hooker.id, feature.id), on)
+            }
+            hooker.options.forEach { option ->
+                val key = SettingsKeys.value(hooker.id, option.key)
+                when (val given = preset.options[option.key]) {
+                    is Int -> editor.putInt(key, given)
+                    is String -> editor.putString(key, given)
+                    else -> when (option) {
+                        is HookOption.Number -> editor.putInt(key, option.default)
+                        is HookOption.Choice -> editor.putInt(key, option.default)
+                        is HookOption.Text -> editor.putString(key, option.default)
+                        is HookOption.KeyMap -> editor.putString(key, option.default)
+                    }
+                }
+            }
+            editor.apply()
+        }
+        revision++
+    }
+
+    /** 当前配置正好等于哪一套预设；都不等于就是 null（「自定义」）。 */
+    fun matchedPreset(hooker: AppHooker): HookPreset? = hooker.presets.firstOrNull { preset ->
+        hooker.features.all { feature ->
+            isFeatureEnabled(hooker.id, feature.id, feature.defaultEnabled) ==
+                (preset.features[feature.id] ?: feature.defaultEnabled)
+        } && hooker.options.all { option ->
+            when (option) {
+                is HookOption.Text -> optionText(hooker.id, option.key, option.default) ==
+                    (preset.options[option.key] as? String ?: option.default)
+
+                is HookOption.KeyMap -> optionText(hooker.id, option.key, option.default) ==
+                    (preset.options[option.key] as? String ?: option.default)
+
+                is HookOption.Number -> valueOf(hooker.id, option) ==
+                    (preset.options[option.key] as? Int ?: option.default)
+
+                is HookOption.Choice -> valueOf(hooker.id, option) ==
+                    (preset.options[option.key] as? Int ?: option.default)
+            }
+        }
+    }
 
     companion object {
         private const val LOCAL_PREFS = "hooker_settings_local"

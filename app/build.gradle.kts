@@ -403,6 +403,7 @@ dependencies {
     implementation(project(":hookers:chuckle"))
     implementation(project(":hookers:womic"))
     implementation(project(":hookers:airmusic"))
+    implementation(project(":hookers:gboard"))
     // ---------------------------------------------------------------------
 
     compileOnly(libs.libxposed.api)

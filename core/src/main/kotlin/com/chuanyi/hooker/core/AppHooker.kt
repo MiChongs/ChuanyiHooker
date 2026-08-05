@@ -32,6 +32,23 @@ interface AppHooker {
     val features: List<HookFeature>
 
     /**
+     * 用户能填具体值的设置项，例如条数上限、有效期。顺序即界面顺序。
+     *
+     * 和 [features] 分开是因为二者在界面上是两段：开关决定「做不做」，
+     * 取值决定「做到什么程度」。
+     */
+    val options: List<HookOption>
+        get() = emptyList()
+
+    /**
+     * 几套调好的配置，用户点一下就套用全部开关与取值。
+     *
+     * 项目多的 hooker 才需要 —— 只有一两个开关时，预设比逐项开还麻烦。
+     */
+    val presets: List<HookPreset>
+        get() = emptyList()
+
+    /**
      * When [onHook] runs.
      *
      * [Stage.PACKAGE_READY] is the normal choice: the real class loader exists

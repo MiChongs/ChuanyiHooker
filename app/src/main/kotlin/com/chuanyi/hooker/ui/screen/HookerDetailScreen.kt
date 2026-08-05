@@ -33,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -54,6 +55,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import coil3.ImageLoader
 import com.chuanyi.hooker.core.AppHooker
+import com.chuanyi.hooker.core.HookOption
+import com.chuanyi.hooker.core.HookPreset
 import com.chuanyi.hooker.data.FrameworkService
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.data.RootShell
@@ -65,6 +68,8 @@ import com.chuanyi.hooker.ui.component.AppIcon
 import com.chuanyi.hooker.ui.component.BlurScaffold
 import com.chuanyi.hooker.ui.component.FooterNote
 import com.chuanyi.hooker.ui.component.HookerTopAppBar
+import com.chuanyi.hooker.ui.component.KeyMapEditorSheet
+import com.chuanyi.hooker.ui.component.OptionEditDialog
 import com.chuanyi.hooker.ui.component.rememberAppIconLoader
 import com.chuanyi.hooker.ui.crossFade
 import com.chuanyi.hooker.ui.motionItem
@@ -79,6 +84,7 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
@@ -88,6 +94,10 @@ import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Switch
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.preference.WindowSpinnerPreference
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Info
 import top.yukonga.miuix.kmp.icon.extended.Layers
@@ -100,6 +110,7 @@ import top.yukonga.miuix.kmp.squircle.squircleBackground
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /**
  * 二级页面：一个 hooker 的开关、作用域、正在被注入的进程，以及功能列表。
@@ -146,6 +157,26 @@ fun HookerDetailScreen(
         }
     }
     val activeCount = featureStates.count { it.value }
+
+    // 取值设置。两份：一份给界面看（已渲染成人话），一份给编辑框（原始值）。
+    // 都在这里算好，LazyColumn 的 item lambda 是独立重组域，值必须由外层捕获。
+    val optionShown = remember(revision, hooker) {
+        hooker.options.associate { it.key to settings.displayOf(hooker.id, it) }
+    }
+    val optionRaw = remember(revision, hooker) {
+        hooker.options.associate { it.key to settings.rawOf(hooker.id, it) }
+    }
+    val optionValues = remember(revision, hooker) {
+        hooker.options.associate { it.key to settings.valueOf(hooker.id, it) }
+    }
+    val matchedPreset = remember(revision, hooker) { settings.matchedPreset(hooker) }
+
+    // 编辑器是**常驻组合、靠 show 切换**的（miuix 的弹层都这样），所以关掉之后还得
+    // 留着最后编辑的那一项 —— 退场动画期间它仍要有内容可画，否则收起时会先闪成空白。
+    var editing by remember(hooker) { mutableStateOf<HookOption?>(null) }
+    var lastEdited by remember(hooker) { mutableStateOf<HookOption?>(null) }
+    LaunchedEffect(editing) { editing?.let { lastEdited = it } }
+    val editTarget = editing ?: lastEdited
 
     // 只对装着的目标谈作用域和重启。权限参与 key 的理由同 rememberHookerOverviews：
     // 被系统拦掉时 getPackageInfo 抛的异常和真没装一样。
@@ -265,6 +296,20 @@ fun HookerDetailScreen(
                 }
             }
 
+            // --- 快捷预设 --------------------------------------------------
+            if (hooker.presets.isNotEmpty()) {
+                item(key = "preset-title") { SmallTitle("快捷预设", modifier = motionItem()) }
+                item(key = "preset") {
+                    PresetSection(
+                        presets = hooker.presets,
+                        matched = matchedPreset,
+                        enabled = hookerOn,
+                        onApply = { settings.applyPreset(hooker, it) },
+                        modifier = motionItem(),
+                    )
+                }
+            }
+
             // --- 功能 ------------------------------------------------------
             item(key = "features-title") { SmallTitle("功能", modifier = motionItem()) }
             item(key = "features") {
@@ -279,11 +324,50 @@ fun HookerDetailScreen(
                 )
             }
 
+            // --- 设置 ------------------------------------------------------
+            if (hooker.options.isNotEmpty()) {
+                item(key = "options-title") { SmallTitle("设置", modifier = motionItem()) }
+                item(key = "options") {
+                    OptionSection(
+                        options = hooker.options,
+                        shown = optionShown,
+                        values = optionValues,
+                        enabled = hookerOn,
+                        featureStates = featureStates,
+                        onEdit = { editing = it },
+                        onPick = { option, value -> settings.writeOption(hooker.id, option, value) },
+                        modifier = motionItem(),
+                    )
+                }
+            }
+
             item(key = "footer") {
                 FooterNote(footerFor(hooker), modifier = motionItem())
             }
         }
     }
+
+    // 映射表有自己的编辑器（一张能点的键盘），其余走通用的输入弹窗。
+    OptionEditDialog(
+        show = editing != null && editing !is HookOption.KeyMap,
+        option = editTarget?.takeIf { it !is HookOption.KeyMap },
+        current = editTarget?.let { optionRaw[it.key] }.orEmpty(),
+        onDismiss = { editing = null },
+        onConfirm = { text ->
+            editing?.let { settings.writeOption(hooker.id, it, text) }
+            editing = null
+        },
+    )
+    KeyMapEditorSheet(
+        show = editing is HookOption.KeyMap,
+        option = editTarget as? HookOption.KeyMap,
+        current = editTarget?.let { optionRaw[it.key] }.orEmpty(),
+        onDismiss = { editing = null },
+        onConfirm = { text ->
+            editing?.let { settings.writeOption(hooker.id, it, text) }
+            editing = null
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -978,10 +1062,8 @@ private fun RestartSection(
 // ---------------------------------------------------------------------------
 
 /**
- * 功能开关。
- *
- * 总开关关掉时这一整段跟着禁用。miuix 的 `SwitchPreference` 换 enabled 是把颜色
- * 直接替掉的，一整段同时变灰会闪一下；[DetailRow] 把这个切换做成颜色过渡。
+ * 功能开关。走 miuix 自己的 `SwitchPreference`，手感（按压、开关动画、禁用配色）
+ * 与系统设置一致，不必自己复刻。
  *
  * `requiresRestart = false` 的功能标出来：默认值是 true，所以标出来的是少数，
  * 噪音小，而底下那句脚注也才对得上。
@@ -1008,19 +1090,199 @@ private fun FeatureSection(
     Card(modifier = modifier.padding(horizontal = 12.dp)) {
         hooker.features.forEach { feature ->
             key(feature.id) {
-                SwitchRow(
+                SwitchPreference(
                     checked = featureStates[feature.id] ?: feature.defaultEnabled,
                     onCheckedChange = { onToggle(feature.id, it) },
                     title = feature.title,
                     summary = feature.summary,
                     enabled = enabled,
-                    trailing = {
+                    endActions = {
                         if (!feature.requiresRestart) InstantTag(enabled = enabled)
                     },
                 )
             }
         }
     }
+}
+
+/**
+ * 快捷预设。
+ *
+ * 一个 hooker 有五个开关加六个取值时，「我该怎么配」本身就成了负担 —— 用户想要的
+ * 是「剪贴板别再一小时就没了」，不是逐项理解每个数字。这一段把常见诉求直接摆成
+ * 选项，选中即全量套用。
+ *
+ * 末尾那个「自定义」不可选，只是用来表达「你现在的配置不等于任何一套预设」——
+ * 改过任何一项之后它会自己亮起来，用户不会以为自己还在某套预设上。
+ */
+@Composable
+private fun PresetSection(
+    presets: List<HookPreset>,
+    matched: HookPreset?,
+    enabled: Boolean,
+    onApply: (HookPreset) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // 每一项都带上它到底改了什么 —— 光有「推荐 / 绝不丢失」这样的名字，
+    // 用户得点开一次才知道差别在哪。
+    val items = remember(presets) {
+        presets.map { DropdownItem(text = it.title, summary = it.summary) } +
+            DropdownItem(text = CUSTOM_PRESET, summary = "手动调过的配置", enabled = false)
+    }
+    val index = presets.indexOfFirst { it.id == matched?.id }.takeIf { it >= 0 } ?: presets.size
+
+    Card(modifier = modifier.padding(horizontal = 12.dp)) {
+        WindowSpinnerPreference(
+            items = items,
+            selectedIndex = index,
+            title = "方案",
+            summary = matched?.summary ?: "当前配置是自己调的。选一套预设会覆盖全部开关与取值",
+            enabled = enabled,
+            onSelectedIndexChange = { picked -> presets.getOrNull(picked)?.let(onApply) },
+        )
+    }
+}
+
+/**
+ * 取值设置。
+ *
+ * 三种形态各用各的控件，因为它们问的其实是三种不同的问题：
+ *
+ *  * [HookOption.Choice] —— 常用值就那么几个（有效期、灵敏度），下拉选一下最快；
+ *  * [HookOption.Number] —— 连续量（条数），滑块能一边拖一边看效果，比反复开关
+ *    输入框快得多；点标题进精确输入，兼顾「我就要 37」这种要求；
+ *  * [HookOption.Text] —— 自由文本（按键映射表），只能弹输入框。
+ *
+ * [HookOption.featureId] 非空的行跟着那个功能一起禁用：一个不生效的数字摆在那里
+ * 只会让人以为它还管用。
+ */
+@Composable
+private fun OptionSection(
+    options: List<HookOption>,
+    shown: Map<String, String>,
+    values: Map<String, Int>,
+    enabled: Boolean,
+    featureStates: Map<String, Boolean>,
+    onEdit: (HookOption) -> Unit,
+    onPick: (HookOption, Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier = modifier.padding(horizontal = 12.dp)) {
+        options.forEach { option ->
+            key(option.key) {
+                val live = enabled && (option.featureId?.let { featureStates[it] != false } ?: true)
+                val current = values[option.key] ?: 0
+                when (option) {
+                    is HookOption.Choice -> ChoiceRow(option, current, live, onEdit, onPick)
+                    is HookOption.Number -> NumberRow(option, current, live, onEdit, onPick)
+                    is HookOption.Text, is HookOption.KeyMap -> ArrowPreference(
+                        title = option.title,
+                        summary = option.summary,
+                        enabled = live,
+                        onClick = { onEdit(option) },
+                        endActions = { OptionValue(shown[option.key].orEmpty(), live) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 档位选择。
+ *
+ * [HookOption.Choice.custom] 非空时列表末尾多一项「自定义…」，选中它弹出数字输入
+ * —— 于是既有快捷档位，又不失去填任意值的能力。当前值不在任何档上时，选中态就停在
+ * 那一项上，行尾显示实际数值。
+ */
+@Composable
+private fun ChoiceRow(
+    option: HookOption.Choice,
+    current: Int,
+    enabled: Boolean,
+    onEdit: (HookOption) -> Unit,
+    onPick: (HookOption, Int) -> Unit,
+) {
+    val hasCustom = option.custom != null
+    val matched = option.indexOf(current)
+    val items = remember(option, current) {
+        option.entries.map { DropdownItem(text = it.label) } +
+            if (hasCustom) {
+                // 当前值不在任何档上时，把它显示在「自定义」这一项里，
+                // 否则用户只看到「自定义…」三个字，不知道现在到底是多少。
+                listOf(
+                    DropdownItem(
+                        text = CUSTOM_VALUE,
+                        summary = if (matched < 0) "当前 ${option.labelOf(current)}" else null,
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+    }
+    val index = if (matched >= 0) matched else if (hasCustom) option.entries.size else 0
+
+    WindowSpinnerPreference(
+        items = items,
+        selectedIndex = index,
+        title = option.title,
+        summary = option.summary,
+        enabled = enabled,
+        onSelectedIndexChange = { picked ->
+            val entry = option.entries.getOrNull(picked)
+            if (entry != null) onPick(option, entry.value) else onEdit(option)
+        },
+    )
+}
+
+/**
+ * 连续量。
+ *
+ * 拖动过程中只改本地状态，松手才写回配置 —— 每一帧都写一次远端 preferences 会把
+ * binder 打满，而且中间那些值用户并不想要。
+ */
+@Composable
+private fun NumberRow(
+    option: HookOption.Number,
+    current: Int,
+    enabled: Boolean,
+    onEdit: (HookOption) -> Unit,
+    onPick: (HookOption, Int) -> Unit,
+) {
+    var live by remember(option.key, current) { mutableFloatStateOf(current.toFloat()) }
+    SliderPreference(
+        value = live,
+        onValueChange = { live = it },
+        title = option.title,
+        summary = option.summary,
+        valueText = option.render(live.roundToInt()),
+        enabled = enabled,
+        valueRange = option.min.toFloat()..option.max.toFloat(),
+        steps = option.sliderSteps,
+        onValueChangeFinished = { onPick(option, live.roundToInt()) },
+        onClick = { onEdit(option) },
+    )
+}
+
+/** 行尾的当前值。换值时是过渡而不是跳字 —— 和这一屏其余会自己变的文字一致。 */
+@Composable
+private fun RowScope.OptionValue(text: String, enabled: Boolean) {
+    val color by animateColorAsState(
+        targetValue = if (enabled) {
+            MiuixTheme.colorScheme.primary
+        } else {
+            MiuixTheme.colorScheme.disabledOnSecondaryVariant
+        },
+        animationSpec = Motion.tint,
+        label = "optionValue",
+    )
+    AnimatedLabel(
+        text = text,
+        modifier = Modifier.align(Alignment.CenterVertically).padding(start = 8.dp),
+        style = MiuixTheme.textStyles.body2,
+        color = color,
+        label = "optionValueText",
+    )
 }
 
 /** 「改完就生效」的标记。跟着行一起变灰，不然禁用时它会突兀地亮着。 */
@@ -1194,6 +1456,12 @@ private fun RowScope.InlineSpinner(visible: Boolean) {
 }
 
 // 手感与尺寸集中放这儿。
+/** 预设列表末尾那一项：表达「现在不等于任何一套预设」，不可选中套用。 */
+private const val CUSTOM_PRESET = "自定义"
+
+/** 档位列表末尾那一项：选中它弹出精确输入。 */
+private const val CUSTOM_VALUE = "自定义…"
+
 /** 成功的播报在屏幕上停多久。够读完一句话，又不至于赖着不走。 */
 private const val NOTICE_LINGER_MILLIS = 3_200L
 

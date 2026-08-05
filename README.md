@@ -627,3 +627,83 @@ self-wipe.
 * Satisfying the app-process gate end to end — forged `signed_payload` plus a
   Java hook on `NativeVerify.by_item()` to cover an unrooted device — is the
   remaining step if `unlock` ever stops being enough.
+
+## Bundled hooker: Gboard
+
+`com.google.android.inputmethod.latin` 17.8.4 —— 解开剪贴板的三处硬限制，
+再让按键的上下滑可以自定义。
+
+剪贴板那三处的位置差别很大，做法也就不同：
+
+| 限制 | 原版 | 它在哪 | 怎么改 |
+|---|---|---|---|
+| 最近保留几条 | 5 | 装填列表的 `Callable` 里，内联常量 | 整个替换那段装填逻辑 |
+| 有效期 | 1 小时 | 同上（查询的时间下限）+ 过期清理 | 同上，清理也一并接管 |
+| 单条字数 | 20000 | Phenotype flag | 直接覆盖 flag 取值 |
+
+前两条落在同一段代码里，所以共用一次接管；只开其中一项时，另一项按原版默认值传进去。
+
+### 名字全部靠形状认
+
+这一包被 R8 重命名得很彻底（`ClipboardAdapter` -> `fki`），但**每个类的 Flogger
+TAG 里留着原始全限定名**：
+
+```java
+wbu.i("com/google/android/apps/inputmethod/libs/clipboard/ClipboardContentProviderUtils")
+```
+
+那是 Google 内部日志系统的定位信息，跨版本不变，比任何混淆后的名字都稳。DexKit 按它
+找类，再按签名认成员。两个坑：
+
+* `usingStrings` 是**包含**匹配，而 R8 会把一堆 lambda 合并进共享类，那些类身上
+  也带着原主人的 TAG —— 光凭串会命中好几个且顺序不定，所以每次查找都要附一个
+  「这个类身上得真有我要的成员」的验证。
+* **DexKit 2.x 不再自己 `loadLibrary`**，漏掉的表现不是「找不到 so」而是调用时报
+  `No implementation found for … nativeInitDexKit`，看起来像版本不匹配。在被注入的
+  进程里还要多一层：`System.loadLibrary` 按调用类的 classloader 找库，而模块
+  classloader 未必带着原生库路径，所以要能退回「问 classloader 要绝对路径再装」。
+
+扫一次要几百毫秒，而这段代码跑在**输入法的启动路径**上，所以结果按 versionCode
+缓存在目标自己的数据目录里。
+
+### 过期项其实没被删
+
+清理那一步在总条数攒到 120 时才跑，删的是普通项里超过一小时的 —— 也就是说日常使用
+（不到 120 条）里过期项**并没有真被删**，只是查询时被时间下限挡住。所以延长有效期
+本身不需要动它；但一旦条数过线，原版会按它那一小时的尺度把用户想留的东西删掉，
+所以有效期改长了就得把清理也换成同一把尺子。
+
+### 上下滑：拦查询，不改数据
+
+Gboard 的触摸状态机判定滑动方向时**只看几何**，不检查这个键有没有定义上滑；真正决定
+「上滑发生了什么」的是下一步按动作取 `ActionDef`。所以第一版做的是在 `SoftKeyDef`
+构造后往它的动作表里补一条 —— 装得上、构造也确实拦到了，**但滑动依旧走滑行输入**：
+被查询的并不是改过的那个实例，布局那一层会复用、重建 `SoftKeyDef`，改动没跟过去。
+
+改成拦「按动作取 `ActionDef`」这一步之后就稳了，无论实例是哪个都绕不开。`SoftKeyDef`
+上这样的方法有两个（一个严格查找、一个查不到时回退到按下），**两个都要挂**：
+
+* 回退那个是实际派发用的，不挂就不会输出指定的内容；
+* 严格那个是**滑行输入的判据** —— 它返回 null 时 Gboard 认为「这个键没有纵向滑动」，
+  于是把纵向滑动当成滑行输入的起手。这正是上滑打不出字、反而冒出联想词的原因。
+
+查询发生在触摸事件路径上，所以结果按 键+方向 缓存，滑动过程中不再分配。
+
+三条规矩：用户在映射表里设过就覆盖；没设过但目标本来就有就不动（那是布局作者的
+安排，字母键原本上滑出的是长按第一个候选，`z` 上滑出 `ź`）；两者都没有才拿长按
+候选补。长按候选的第一条常是「打开候选弹窗」这类控制码（`data` 为 null），取候选
+时要先滤掉，否则补上去的是一个什么都不输出的动作。
+
+⚠️ 用 `adb shell input swipe` 测这个功能会**得到错误结论**：模拟手势的轨迹特性会被
+判成滑行输入，真手指走的是另一条路。要么真手滑，要么看
+`滑动查询 …… 改写=true` 那条日志。
+
+| Feature | What it hooks |
+|---|---|
+| `clip_count` | 装填剪贴板列表的 `Callable`，整段替换 —— 查询、分段、组装全部自己来。列表结构（段头位置、顺序）与原版一致，下游 adapter 靠 `indexOf(段头)` 反算每段条数，错一位整个面板就乱。 |
+| `clip_ttl` | 同上那段（查询的时间下限），外加过期清理那个 `Callable`。 |
+| `clip_chars` | `text_clip_item_char_limit` 这个 flag。不用 hook：flag 对象自带一个把取值写进最高优先级档位的入口，直接调它，之后所有读取点拿到的都是新值。 |
+| `slide_up` / `slide_down` | `SoftKeyDef` 上两个「按动作取 ActionDef」的方法。 |
+
+数的是**复制次数**而不是条数：一次复制被实体识别拆成的电话、网址共享一个时间戳，
+只算一组 —— 跟原版语义一致，所以默认值 5 就是原版行为。
