@@ -17,10 +17,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import com.chuanyi.hooker.data.CommunityInvite
+import com.chuanyi.hooker.data.DonationPrompt
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.ui.LocalUiPreferences
 import com.chuanyi.hooker.ui.component.BlurScaffold
 import com.chuanyi.hooker.ui.component.CommunityInviteDialog
+import com.chuanyi.hooker.ui.component.DonationPromptDialog
 import com.chuanyi.hooker.ui.component.HookerTopAppBar
 import com.chuanyi.hooker.ui.navigation.LocalNavigator
 import com.chuanyi.hooker.ui.navigation.Route
@@ -60,9 +62,16 @@ fun HomeScreen(settings: ModuleSettings) {
     val scope = rememberCoroutineScope()
     val currentTab by remember { derivedStateOf { HomeTab.entries[pagerState.currentPage] } }
 
-    // 弹不弹在进程第一次取到这个单例时就已经定了，这里只是把答案接过来。
+    // 弹不弹在进程第一次取到这两个单例时就已经定了，这里只是把答案接过来。
+    //
+    // 顺序有意义：两个弹窗各自开窗口，同时弹会叠在一起。先问「加入我们」，它要弹的话
+    // 赞赏这一档就顺延到下次启动（不作废，见 DonationPrompt）。全新安装的第 1 次启动
+    // 因此只有欢迎弹窗，赞赏落在第 2 次。
     val context = LocalContext.current
     val invite = remember(context) { CommunityInvite.get(context) }
+    val donation = remember(context, invite) {
+        DonationPrompt.get(context, deferred = invite.isShowing)
+    }
 
     // 不在启动页签时，返回键先回到启动页签，而不是直接退出应用。回的是「打开应用时看到的
     // 那一页」而不是写死的第一页 —— 否则把启动页签设成「应用」的人，返回键会把他送到一个
@@ -134,9 +143,10 @@ fun HomeScreen(settings: ModuleSettings) {
         }
     }
 
-    // 挂在 BlurScaffold **外面**：它自己开窗口，不占布局，也就不会被 body 那层毛玻璃
+    // 挂在 BlurScaffold **外面**：它们自己开窗口，不占布局，也就不会被 body 那层毛玻璃
     // 采样层录进去。不显示时一个布局节点都不产生。
     CommunityInviteDialog(invite)
+    DonationPromptDialog(donation)
 }
 
 enum class HomeTab(val title: String) {

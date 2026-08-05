@@ -55,7 +55,10 @@ fun rememberHookerOverviews(
     permissionGranted: Boolean,
 ): List<HookerOverview> {
     val context = LocalContext.current
-    val hookers = remember { HookerRegistry.all() }
+    // 产出激活凭据的那个 hooker 不进列表：它不改目标任何行为，没有可开关的功能，
+    // 而它的开关一旦被关掉整个模块就会停摆 —— 摆出来只会让人以为那是个普通目标。
+    // 它的状态在首页的激活卡片上单独说。
+    val hookers = remember { HookerRegistry.all().filterNot { it.bypassesActivation } }
 
     // 贵的那一半：只跟权限走。
     val targets = remember(hookers, context, permissionGranted) {

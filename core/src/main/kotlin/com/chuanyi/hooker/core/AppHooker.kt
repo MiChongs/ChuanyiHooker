@@ -28,6 +28,18 @@ interface AppHooker {
     /** Packages this hooker claims. Must match the module's `scope.list`. */
     val targetPackages: Set<String>
 
+    /**
+     * 这个 hooker 不受激活闸门约束，且不出现在应用列表里。
+     *
+     * 只有一种东西该返回 true：**产出激活凭据的那个 hooker 自己**（`:hookers:tgguard`）。
+     * 它要是也被闸门挡住，就永远拿不到令牌，闸门自己把自己锁死了。
+     *
+     * 同理它也不受「单个应用的开关」影响 —— 见 [HookerRuntime.selectHookers]。
+     * 一个关掉之后会让整个模块停止工作的开关，摆在界面上只会制造误解。
+     */
+    val bypassesActivation: Boolean
+        get() = false
+
     /** Everything the user can toggle. Order is preserved in the UI. */
     val features: List<HookFeature>
 

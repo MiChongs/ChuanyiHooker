@@ -39,6 +39,9 @@ include(":patcher:runtime")
 // Discovery at runtime is automatic (META-INF/services), scope is merged
 // automatically (META-INF/xposed/scope.list).
 // ---------------------------------------------------------------------------
+// 模块激活校验：读 TG 客户端的本地会话库，判断能不能用。不改目标任何行为。
+include(":hookers:tgguard")
+
 include(":hookers:paisa")
 include(":hookers:hills")
 include(":hookers:skypulse")
@@ -59,3 +62,4 @@ include(":hookers:gboard")
 include(":hookers:bridgeaudio")
 include(":hookers:wink")
 include(":hookers:poweramp")
+include(":hookers:cellularpro")

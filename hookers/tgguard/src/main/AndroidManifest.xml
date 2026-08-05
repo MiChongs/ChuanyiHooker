@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        这个 hooker 的目标就是全部认得出来的 TG 客户端。
+
+        跟别的 hooker 一样，包可见性要在这里声明一遍：API 30+ 上 getPackageInfo 会被
+        过滤，模块界面否则会把装着的客户端显示成「未安装」—— 而这一屏恰好是用户排查
+        「为什么模块说我没激活」的地方，显示错了会把人引到完全错误的方向。
+
+        与 src/main/resources/META-INF/xposed/scope.list 保持一致，由 :checkHookerScope
+        在构建期比对。
+    -->
+    <queries>
+        <package android:name="org.telegram.messenger" />
+        <package android:name="org.telegram.messenger.web" />
+        <package android:name="org.telegram.messenger.beta" />
+        <package android:name="org.telegram.plus" />
+        <package android:name="nekox.messenger" />
+        <package android:name="tw.nekomimi.nekogram" />
+        <package android:name="xyz.nextalone.nagram" />
+        <package android:name="it.owlgram.android" />
+        <package android:name="uz.unnarsx.cherrygram" />
+        <package android:name="com.exteragram.messenger" />
+        <package android:name="org.telegram.mdgram" />
+        <package android:name="ir.ilmili.telegraph" />
+    </queries>
+
+</manifest>

@@ -68,8 +68,14 @@ const char *const kDirtyNeedles[] = {
 };
 
 /// 这些文件的**内容**要过滤。
+///
+/// ⚠️ 只能放**按行组织的文本**。这里的过滤是 `fgets` + `strlen` + `write`，遇到内嵌
+/// NUL 会在第一个 NUL 处截断 —— 而 `/proc/*/cmdline` 恰恰是 NUL 分隔的：过滤之后
+/// 进程名结尾那个 NUL 没了，后面的 argv 也没了。读进程名的代码（ART 自己、各家 SDK）
+/// 会拿到一个没有终止符的串，表现是应用启动到一半卡住不动，且**不报任何错**。
+/// cmdline 里本来也不会出现 root / hook 框架的特征，过滤它没有任何收益，所以不收。
 const char *const kFilteredFiles[] = {
-    "/maps", "/smaps", "/mounts", "/mountinfo", "/status", "/cmdline", "/kallsyms",
+    "/maps", "/smaps", "/mounts", "/mountinfo", "/status", "/kallsyms",
 };
 
 /// 这些目录直接当作不存在。/root 存在与否是最常见的 root 判据之一。
@@ -236,13 +242,40 @@ char *ReplacementRealpath(const char *path, char *resolved) {
     return g_originalRealpath(path, resolved);
 }
 
+/**
+ * `readlink` 除了挡已知的 root 路径，还要管住 **`/proc/<pid>/fd/<n>` 的解析结果**。
+ *
+ * 模块被注入之后，模块 APK 会作为一个打开的文件描述符留在进程里。检测方只要
+ * `opendir("/proc/self/fd")` + `readlink` 走一遍，就能读到
+ * `/data/app/~~…/com.chuanyi.hooker-…/base.apk` —— 这条路既不读 maps 也不走 linker，
+ * 前面两道（[kFilteredFiles] 的内容过滤、`linkmap_hide` 的链表摘除）都盖不到。
+ *
+ * 处理成 `ENOENT`：对调用方而言就是「这个 fd 在 readdir 和 readlink 之间被关掉了」，
+ * 是并发下本来就会出现的正常情况，比返回一个假路径更不容易被当成异常。
+ */
 ssize_t ReplacementReadlink(const char *path, char *buf, size_t len) {
     if (IsDeniedPath(path)) {
         g_denied.fetch_add(1);
         errno = ENOENT;
         return -1;
     }
-    return g_originalReadlink(path, buf, len);
+    const ssize_t n = g_originalReadlink(path, buf, len);
+    if (n > 0 && buf != nullptr && path != nullptr && std::strstr(path, "/fd/") != nullptr) {
+        // readlink 不写结尾的 NUL，自己截一份再判。
+        char target[512];
+        const size_t copy = static_cast<size_t>(n) < sizeof(target) - 1
+                                ? static_cast<size_t>(n)
+                                : sizeof(target) - 1;
+        std::memcpy(target, buf, copy);
+        target[copy] = '\0';
+        if (IsDirtyLine(target)) {
+            g_denied.fetch_add(1);
+            LogInfo("env_spoof: readlink(\"%s\") 指向模块，报不存在", path);
+            errno = ENOENT;
+            return -1;
+        }
+    }
+    return n;
 }
 
 int ReplacementStatfs(const char *path, void *buf) {

@@ -32,6 +32,10 @@ coil = "3.5.0"
 # 15.0.4 起支持 AGP 9 / Kotlin 2.4，插件本身要求 AGP >= 8.13。
 aboutlibraries = "15.0.4"
 
+# 二维码。只用编码器（QRCodeWriter -> BitMatrix），位图不生成 —— 模块网格交给
+# Compose Canvas 画，见 ui/component/QrCode.kt。解码那半边由 R8 摘掉。
+zxing = "3.5.4"
+
 # 权限
 xxpermissions = "28.3"
 # XXPermissions 的运行时依赖，官方要求显式声明
@@ -65,6 +69,10 @@ androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtim
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 androidx-annotation-jvm = { module = "androidx.annotation:annotation-jvm", version.ref = "annotationJvm" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+
+# --- 二维码 ---
+# 纯 Java，不碰 android.graphics / java.awt，所以能直接在 Compose 里用。
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 
 # --- 权限 ---
 xxpermissions = { module = "com.github.getActivity:XXPermissions", version.ref = "xxpermissions" }

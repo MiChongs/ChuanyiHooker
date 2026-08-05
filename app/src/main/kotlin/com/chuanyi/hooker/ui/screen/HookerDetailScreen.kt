@@ -1,5 +1,6 @@
 package com.chuanyi.hooker.ui.screen
 
+import android.content.Context
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
@@ -202,7 +203,10 @@ fun HookerDetailScreen(
         else -> ScopeState.Missing
     }
 
-    val actions = remember(scope, framework) { DetailActions(scope, framework) }
+    val appContext = context.applicationContext
+    val actions = remember(scope, framework, appContext) {
+        DetailActions(scope, framework, appContext)
+    }
 
     // 成功的播报自己退场；进行中的等结果顶掉它，失败的留着让用户看完。
     val notice = actions.notice
@@ -248,6 +252,24 @@ fun HookerDetailScreen(
                     onCheckedChange = { settings.setHookerEnabled(hooker.id, it) },
                     modifier = motionItem(),
                 )
+            }
+
+            // 改动没送到框架时必须在**改动发生的这一屏**上说。以前只有状态页有这条
+            // 提示，而用户是在这里拨开关的：写入没落地时界面照样显示成新值
+            // （远端那份 SharedPreferences 会先更新自己的内存副本），不提示的话
+            // 完全看不出来，只会觉得「模块没效果」。
+            if (!settings.isSynced) {
+                item(key = "sync") {
+                    Card(modifier = motionItem().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                        DetailRow(
+                            title = "改动还没送到框架",
+                            summary = settings.serviceError
+                                ?: "正在等待 Xposed 服务连接。这期间改的东西只存在本机，被 hook 的应用看不到。",
+                            summaryColor = MiuixTheme.colorScheme.error,
+                            glyph = { GlyphBadge(MiuixIcons.Report, MiuixTheme.colorScheme.error) },
+                        )
+                    }
+                }
             }
 
             // 播报常驻一项：藏起来时高度为 0。这样它的出现与消失由自己的过渡控制，
@@ -417,6 +439,8 @@ private data class BusyAction(val packageName: String, val kind: BusyKind)
 private class DetailActions(
     private val scope: CoroutineScope,
     private val framework: FrameworkService,
+    /** application context —— 解目标的启动 Activity 要 PackageManager，见 [RootShell.launch]。 */
+    private val context: Context,
 ) {
 
     var notice by mutableStateOf<Notice?>(null)
@@ -451,7 +475,7 @@ private class DetailActions(
         busy = BusyAction(packageName, BusyKind.Restart)
         post("正在重启 $packageName…", NoticeTone.Progress)
         scope.launch {
-            val outcome = RootShell.restart(packageName)
+            val outcome = RootShell.restart(context, packageName)
             if (outcome.isSuccess) {
                 post("$packageName 已重启，改动生效", NoticeTone.Success)
             } else {

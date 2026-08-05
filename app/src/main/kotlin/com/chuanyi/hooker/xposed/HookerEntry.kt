@@ -2,6 +2,8 @@ package com.chuanyi.hooker.xposed
 
 import android.os.Build
 import androidx.annotation.RequiresApi
+import com.chuanyi.hooker.BuildConfig
+import com.chuanyi.hooker.core.ActivationGuard
 import com.chuanyi.hooker.core.HookerRuntime
 import com.chuanyi.hooker.nativehook.NativeHook
 import io.github.lingqiqi5211.ezhooktool.xposed.EzXposed
@@ -160,6 +162,17 @@ class HookerEntry : XposedModule() {
             runCatching { moduleApplicationInfo.nativeLibraryDir }.getOrNull(),
         )
         NativeHook.setVerbose(HookerRuntime.currentSettings().isVerbose())
+
+        // 激活闸门的接线。同样只能放在 entry 里：:core 定义闸门，:native 实现校验，
+        // 而模块图里没有 core -> native 这条边 —— 这里是唯一同时看得见两边的地方，
+        // 顺带也是唯一看得见 BuildConfig 的地方。
+        //
+        // versionCode 会被签进令牌：换一版模块，旧令牌自动失效，用户下次打开 TG
+        // 时静默续签。热重载换了 classloader，新一代的 ActivationGuard 是全新对象，
+        // 所以这一句和上面几句一样，两条路径都必须重做。
+        ActivationGuard.wire(BuildConfig.VERSION_CODE) { token, moduleVersionCode ->
+            NativeHook.activationVerify(token, moduleVersionCode)
+        }
     }
 
     /**

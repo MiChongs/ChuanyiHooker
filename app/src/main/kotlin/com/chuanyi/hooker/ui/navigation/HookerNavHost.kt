@@ -22,6 +22,7 @@ import androidx.navigation3.ui.NavDisplayTransitionEffects
 import androidx.savedstate.serialization.SavedStateConfiguration
 import com.chuanyi.hooker.core.HookerRegistry
 import com.chuanyi.hooker.data.ModuleSettings
+import com.chuanyi.hooker.ui.screen.DonateScreen
 import com.chuanyi.hooker.ui.screen.HomeScreen
 import com.chuanyi.hooker.ui.screen.HookerDetailScreen
 import com.chuanyi.hooker.ui.screen.LibraryLicenseScreen
@@ -101,6 +102,7 @@ fun HookerNavHost(settings: ModuleSettings) {
                 subclass(Route.HookerDetail::class)
                 subclass(Route.Settings::class)
                 subclass(Route.NativeLayer::class)
+                subclass(Route.Donate::class)
                 subclass(Route.Licenses::class)
                 subclass(Route.LibraryLicense::class)
             }
@@ -146,6 +148,10 @@ fun HookerNavHost(settings: ModuleSettings) {
                     NativeLayerScreen()
                 }
 
+                entry<Route.Donate> {
+                    DonateScreen()
+                }
+
                 entry<Route.Licenses> {
                     LicensesScreen()
                 }
@@ -163,7 +169,7 @@ fun HookerNavHost(settings: ModuleSettings) {
                 //     entry<Route.Foo>(metadata = NavDisplay.transitionSpec { … }) { … }
                 //     entry<Route.Foo>(metadata = DialogSceneStrategy.dialog()) { … }
                 //
-                // 目前这五页在层级上是同一类「往里走一层」，用同一套转场才是对的，
+                // 目前这几页在层级上是同一类「往里走一层」，用同一套转场才是对的，
                 // 所以一个覆盖都没写。
             }
         }

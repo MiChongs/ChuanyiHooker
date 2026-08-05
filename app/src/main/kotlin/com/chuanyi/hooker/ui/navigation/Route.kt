@@ -38,6 +38,10 @@ sealed interface Route : NavKey {
     @Serializable
     data object NativeLayer : Route
 
+    /** 赞赏：收款地址与二维码。 */
+    @Serializable
+    data object Donate : Route
+
     /** 开源许可：本应用用到的第三方依赖一览。 */
     @Serializable
     data object Licenses : Route

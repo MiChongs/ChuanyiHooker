@@ -1,7 +1,5 @@
 package com.chuanyi.hooker.ui.component
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.runtime.Composable
@@ -66,7 +64,8 @@ fun CommunityLinkRows() {
 fun openExternalLink(context: Context, uriHandler: UriHandler, url: String) {
     if (runCatching { uriHandler.openUri(url) }.isSuccess) return
 
-    context.getSystemService(ClipboardManager::class.java)
-        ?.setPrimaryClip(ClipData.newPlainText("链接", url))
+    // 这句不走 copyToClipboard 的 confirmation：要讲的是「打不开」这件事本身，
+    // 在 Android 13+ 上也得说，不能被系统那个「已复制」浮层顶掉。
+    context.copyToClipboard(label = "链接", text = url)
     Toast.makeText(context, "没有能打开链接的应用，已复制到剪贴板", Toast.LENGTH_SHORT).show()
 }

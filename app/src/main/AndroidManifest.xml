@@ -35,14 +35,37 @@
     -->
     <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
 
+    <!--
+        forceQueryable：让本应用对所有应用可见。
+
+        不是为了方便，是激活校验那条链路的硬前提。TG 客户端进程里的探测算出令牌后
+        要广播回这里落盘（它自己写不了框架配置，只读），而 Android 11+ 的包可见性
+        会把**显式**广播也一并过滤掉 —— 目标 App 的清单不归我们管，不可能让它去声明
+        <queries> 指向本模块。少了这一行，广播会被系统静默丢弃：探测成功、日志正常、
+        令牌就是到不了，界面一直显示未激活。
+
+        这个属性禁止用于应用商店分发的应用，本模块是自分发的，正是它的适用场景。
+    -->
     <application
         android:allowBackup="false"
+        android:forceQueryable="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:description="@string/xposed_description"
         android:supportsRtl="true"
         android:theme="@style/Theme.ChuanyiHooker"
         tools:targetApi="34">
+
+        <!--
+            激活令牌的落盘入口，由 :hookers:tgguard 在 TG 客户端进程里发过来。
+
+            导出但**不带 intent-filter**：发送方用的是显式组件名，不需要隐式匹配，
+            少一个 filter 就少一份被随手 resolve 到的可能。导出本身是安全的 ——
+            令牌带 MAC，接收器在写之前先验，伪造的进不来，见 ActivationReceiver。
+        -->
+        <receiver
+            android:name=".data.ActivationReceiver"
+            android:exported="true" />
 
         <activity
             android:name=".ui.MainActivity"

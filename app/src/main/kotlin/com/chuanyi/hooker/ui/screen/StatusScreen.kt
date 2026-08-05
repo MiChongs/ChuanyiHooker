@@ -143,6 +143,8 @@ fun StatusScreen(
             )
         }
 
+        // 未激活是最要紧的一条：它一成立，下面所有「已开启 N 项」都是没生效的。
+        // 所以排在其余提示之前。
         // 需要用户处理的问题。没问题时这一段完全不出现，不占版面 ——
         // 但出现和消失要有过渡，否则是「凭空插进来一张卡」。
         if (showPermissionAlert) {
@@ -216,6 +218,8 @@ fun StatusScreen(
     }
 }
 
+// 未激活（没通过群组校验）不在这一屏出现：那种情况下整个界面都不会被渲染，
+// 由 MainActivity 直接换成全屏的 ActivationLockScreen。
 private enum class ModuleState { Inactive, Paused, Idle, Running }
 
 /**

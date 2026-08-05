@@ -404,6 +404,109 @@ object NativeHook {
 
     data class NativeHookerInfo(val id: String, val description: String)
 
+    // --- 模块激活校验 ---------------------------------------------------------
+    //
+    // 判据是「本机的 TG 客户端里有没有那个群」，判定代码不在 libchuanyihook.so 的
+    // 明文里 —— 它单独编译、加密，运行时解到匿名内存执行（见 cpp/activation.cpp
+    // 与 cpp/payload/）。这里只是把入口接到 Kotlin。
+    //
+    // 两个动作分居两处进程：**探测**只能在 TG 客户端自己的进程里做（别的进程读不到
+    // 它的 files/cache4.db），**校验**在每个被注入的进程里做。中间靠一枚带 MAC 的
+    // 令牌连接，令牌本身也由壳内代码签发和验证 —— Java 侧从头到尾拿不到密钥。
+
+    /**
+     * 令牌的有效期，天。
+     *
+     * 过期不是「封号」，是「该重新看一眼了」：用户下次打开 TG，探测会自动续签。
+     *
+     * 这个数字同时是**两条被动链路的上界**，所以它不能大：
+     *
+     *  * 作用域被取消（用户在 LSPosed 里把本模块从 TG 的勾选里去掉）—— 探测再也
+     *    不会跑，没有任何进程能主动发现这件事，只能等令牌过期；
+     *  * 退群之后再也不打开 TG —— 同理，没人来告诉我们。
+     *
+     * 主动链路（退群后又开过一次 TG、或者用户打开过模块界面）都是**立刻**生效的，
+     * 见 `TgGuardHooker` 的定向撤销和 `ActivationAudit` 的作用域稽核。这里兜的是
+     * 「两条主动链路都没被触发」的最坏情况。
+     *
+     * 3 天是权衡：续签是每天一次，所以正常使用有两天余量，出门几天不看 TG 也不会
+     * 被打断；再往上加，被动兜底就形同虚设。
+     */
+    const val ACTIVATION_TTL_DAYS: Int = 3
+
+    /** [activationProbe] 的结果。三档的区别见每一档自己的说明。 */
+    enum class ProbeOutcome {
+        /** 找到了，[ProbeResult.token] 有值。 */
+        FOUND,
+
+        /**
+         * **权威的「没有」**：库读通了、表结构也认出来了，就是没这个群。
+         *
+         * 只有这一档能拿去撤销已签发的令牌。把它和 [UNREADABLE] 混成一档，
+         * 「退群立刻停用」就只能退化成等过期。
+         */
+        ABSENT,
+
+        /** 结论不可信：文件不在、打不开、不是 SQLite 库、或者表结构没认出来。 */
+        UNREADABLE,
+    }
+
+    data class ProbeResult(val outcome: ProbeOutcome, val token: String?)
+
+    /**
+     * 当前 Unix 纪元日。签发侧和校验侧必须用同一个算法，所以只在这里算一次。
+     *
+     * 按 UTC 而不是本地时区：时区会跟着用户走，跨一次时区就可能把「今天」算成
+     * 昨天，让刚签发的令牌在校验侧看起来来自未来。
+     */
+    fun activationEpochDay(): Int = (System.currentTimeMillis() / 86_400_000L).toInt()
+
+    /**
+     * 探测一个 `cache4.db`。
+     *
+     * 只在 TG 客户端自己的进程里有意义 —— 别的进程连那个文件都打不开。
+     * 同目录下的 `<dbPath>-wal` 会被一并考虑：Telegram 跑 WAL 模式，刚加进来的群
+     * 很可能还没落进主库。
+     *
+     * @param sourceHash 签发方包名的 FNV-1a，会被签进令牌，撤销时据此认人
+     */
+    fun activationProbe(dbPath: String, moduleVersion: Int, sourceHash: Int): ProbeResult {
+        if (!isAvailable || dbPath.isEmpty()) return ProbeResult(ProbeOutcome.UNREADABLE, null)
+        val out = arrayOfNulls<String>(1)
+        val status = runCatching {
+            nativeActivationProbe(dbPath, moduleVersion, activationEpochDay(), sourceHash, out)
+        }.getOrDefault(PROBE_UNREADABLE)
+        return when (status) {
+            PROBE_FOUND -> out[0]
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { ProbeResult(ProbeOutcome.FOUND, it) }
+                ?: ProbeResult(ProbeOutcome.UNREADABLE, null)
+
+            PROBE_ABSENT -> ProbeResult(ProbeOutcome.ABSENT, null)
+            // 入参不合法（2）也归到这里：那说明壳没装起来或者缓冲区没给够，
+            // 无论如何都不是「这台机器确实没这个群」。
+            else -> ProbeResult(ProbeOutcome.UNREADABLE, null)
+        }
+    }
+
+    /**
+     * 令牌是不是本模块签发的、且还在有效期内。
+     *
+     * 原生层加载不起来时返回 false 而不是 true。这和这个文件里其余方法「失败降级成
+     * 无害值」的约定**相反**，是有意的：其余方法失败只是少一个能力，这里失败却是
+     * 「校验没做成」，当作通过等于把闸门本身变成可选项。
+     */
+    fun activationVerify(
+        token: String?,
+        moduleVersion: Int,
+        ttlDays: Int = ACTIVATION_TTL_DAYS,
+    ): Boolean {
+        if (!isAvailable || token.isNullOrEmpty()) return false
+        return runCatching {
+            nativeActivationVerify(token, moduleVersion, activationEpochDay(), ttlDays)
+        }.getOrDefault(false)
+    }
+
     // --- Dynamically registered JNI methods ----------------------------------
 
     /** Id of the built-in `RegisterNatives` watch, for [install] / [isInstalled]. */
@@ -490,4 +593,11 @@ object NativeHook {
     private external fun nativeConstantOnJniRegister(className: String, methodName: String, value: Long): Boolean
     private external fun nativeJniRegistrationAddress(className: String, methodName: String): Long
     private external fun nativeJniRegistrations(): Array<String>
+    private external fun nativeActivationProbe(dbPath: String, moduleVersion: Int, today: Int, sourceHash: Int, out: Array<String?>): Int
+    private external fun nativeActivationVerify(token: String, moduleVersion: Int, today: Int, ttlDays: Int): Boolean
+
+    // 和 cpp 侧 chuanyi::ActivationProbe 的返回值一一对应。
+    private const val PROBE_ABSENT = 0
+    private const val PROBE_FOUND = 1
+    private const val PROBE_UNREADABLE = 3
 }

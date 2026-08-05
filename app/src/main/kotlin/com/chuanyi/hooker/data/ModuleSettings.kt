@@ -6,10 +6,12 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.chuanyi.hooker.BuildConfig
 import com.chuanyi.hooker.core.AppHooker
 import com.chuanyi.hooker.core.HookOption
 import com.chuanyi.hooker.core.HookPreset
 import com.chuanyi.hooker.core.SettingsKeys
+import com.chuanyi.hooker.nativehook.NativeHook
 import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 
@@ -22,6 +24,14 @@ import io.github.libxposed.service.XposedServiceHelper
  * fallback and swaps to the remote store once it arrives, copying anything the
  * user changed in the meantime. [isSynced] drives the warning in the UI: while
  * it is false, edits are not visible to hooked apps.
+ *
+ * ## ⚠️ 写入一律走 [write]，永远不要用 apply()
+ *
+ * 远端那份 `SharedPreferences` 是 libxposed 的 `RemotePreferences`，它的 `apply()`
+ * **只把新值写进进程内的内存副本，真正送去框架的那一步丢给自己的后台线程池**，
+ * 而那个线程池不在 `QueuedWork` 里 —— 系统在 Activity 暂停和进程退出前的自动 flush
+ * 覆盖不到它。用户划掉后台就丢，而且界面全程显示成功（读的正是那份内存副本），
+ * 直到重进才「变回去」。完整说明见 [write]。
  *
  * ## 为什么标 [Stable]
  *
@@ -89,7 +99,11 @@ class ModuleSettings private constructor(context: Context) {
             XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
                 override fun onServiceBind(service: XposedService) = onService(service)
                 override fun onServiceDied(service: XposedService) {
-                    remote = null
+                    // 故意**不**把 remote 置空：那个对象手里还攥着最后一次已知配置的
+                    // 内存副本，界面继续读它是对的。置空的话 reader() 会退回 local，
+                    // 而 local 在迁移成功之后是被清空的 —— 界面会整片显示成默认值，
+                    // 看起来就像「配置全没了」。写入会因为 commit 失败落回 local，
+                    // 等服务回来再迁移，见 [write]。
                     isSynced = false
                     framework.onDied()
                     serviceError = "Xposed service disconnected"
@@ -121,7 +135,12 @@ class ModuleSettings private constructor(context: Context) {
         revision++
     }
 
-    /** Carries pre-service edits over exactly once. */
+    /**
+     * 把还没送到框架的那些改动补过去。
+     *
+     * [local] 装的是「写的时候框架没接上」的改动（见 [write]），所以这里是补写而不是
+     * 覆盖：送成功了才清空，没成功就留着等下一次绑定。
+     */
     private fun migrateLocalInto(target: SharedPreferences) {
         val pending = local.all
         if (pending.isEmpty()) return
@@ -135,10 +154,56 @@ class ModuleSettings private constructor(context: Context) {
                 is String -> editor.putString(key, value)
             }
         }
-        if (editor.commit()) local.edit().clear().apply()
+        if (editor.commit()) local.edit().clear().commit()
     }
 
     private fun reader(): SharedPreferences = remote ?: local
+
+    /**
+     * 写一次配置。**所有写入都必须走这里。**
+     *
+     * ## 为什么不能用 apply()
+     *
+     * libxposed 的 `RemotePreferences` 不是普通的 SharedPreferences：
+     *
+     * ```java
+     * public void apply() {
+     *     var bundle = buildCommitBundle();
+     *     doUpdate();                                // ① 只更新进程内那份内存 map
+     *     EXECUTOR.execute(() -> doCommit(bundle));  // ② 真正送去框架，丢给后台线程
+     * }
+     * ```
+     *
+     * ① 让界面立刻显示成新值，② 才是真正写进框架。而那个 `EXECUTOR` 是它自己的
+     * 线程池，**不在 `QueuedWork` 里** —— 系统在 Activity 暂停、以及进程退出前
+     * 会自动 flush 的只有普通 SharedPreferences，覆盖不到它。用户划掉后台、
+     * 或者 HyperOS 主动清理内存，② 就随进程一起没了。
+     *
+     * 症状非常具有迷惑性：**界面上一切正常**（读的是 ① 更新过的那份内存 map），
+     * 被 hook 的应用拿到的却还是旧值；直到杀掉模块进程重进，界面才「变回去」——
+     * 于是看起来像「杀后台导致配置丢失」，实际上那次写入从一开始就没送到框架。
+     *
+     * `commit()` 走同一条 binder 调用，但是同步的：返回时框架已经收下了。配置写入
+     * 是用户点一下才发生一次、且只有几个字节的事，同步完全付得起。
+     *
+     * ## 没送到怎么办
+     *
+     * 送不到（服务还没绑上、或者刚断开）就存进 [local]，等 binder 到达时由
+     * [migrateLocalInto] 补上，同时把 [isSynced] 打回 false 让界面如实提示 ——
+     * 这比假装写成功要好得多。
+     */
+    private fun write(block: SharedPreferences.Editor.() -> Unit) {
+        val target = remote
+        val landed = target != null && runCatching { target.edit().apply(block).commit() }
+            .onFailure { serviceError = it.message ?: it.javaClass.simpleName }
+            .getOrDefault(false)
+
+        if (!landed) {
+            runCatching { local.edit().apply(block).commit() }
+            isSynced = false
+        }
+        revision++
+    }
 
     /**
      * SharedPreferences 里的值不是 snapshot state，直接读它的 composable 不会被
@@ -158,10 +223,7 @@ class ModuleSettings private constructor(context: Context) {
         default: Boolean,
     ): Boolean = runCatching { reader().getBoolean(key, default) }.getOrDefault(default)
 
-    fun setBoolean(key: String, value: Boolean) {
-        runCatching { reader().edit().putBoolean(key, value).apply() }
-        revision++
-    }
+    fun setBoolean(key: String, value: Boolean) = write { putBoolean(key, value) }
 
     fun toggle(key: String, default: Boolean) = setBoolean(key, !getBoolean(key, default))
 
@@ -174,10 +236,7 @@ class ModuleSettings private constructor(context: Context) {
         default: Int,
     ): Int = runCatching { reader().getInt(key, default) }.getOrDefault(default)
 
-    fun setInt(key: String, value: Int) {
-        runCatching { reader().edit().putInt(key, value).apply() }
-        revision++
-    }
+    fun setInt(key: String, value: Int) = write { putInt(key, value) }
 
     fun getString(key: String, default: String): String = readString(revision, key, default)
 
@@ -187,10 +246,74 @@ class ModuleSettings private constructor(context: Context) {
         default: String,
     ): String = runCatching { reader().getString(key, default) ?: default }.getOrDefault(default)
 
-    fun setString(key: String, value: String) {
-        runCatching { reader().edit().putString(key, value).apply() }
-        revision++
+    fun setString(key: String, value: String) = write { putString(key, value) }
+
+    // --- 激活状态 -----------------------------------------------------------
+    //
+    // 令牌由 TG 客户端进程里的探测签发（见 :hookers:tgguard），广播到这里落盘，
+    // 再由每个被注入的进程读走校验。这一侧只负责存和显示，判定全在原生的壳内代码里。
+
+    /** 当前令牌，没有就是 null。 */
+    val activationToken: String?
+        get() = readNullableString(revision, SettingsKeys.ACTIVATION_TOKEN)
+
+    /** 最后一次拿到令牌的时刻，0 表示从来没有过。 */
+    val activationUpdatedAt: Long
+        get() = readLong(revision, SettingsKeys.ACTIVATION_UPDATED_AT)
+
+    /** 最后一次签发令牌的 TG 客户端包名，空串表示没有。 */
+    val activationSource: String
+        get() = readNullableString(revision, SettingsKeys.ACTIVATION_SOURCE).orEmpty()
+
+    /**
+     * 模块当前能不能用。
+     *
+     * 每次读都重新走一遍原生校验，不缓存 —— 令牌带有效期，缓存下来就等于把过期检查
+     * 废掉，界面会在令牌早已失效之后还显示「已激活」，而被注入的进程那边已经停了。
+     * 一次校验是一次 mmap 加几微秒的 MAC 计算，重组时读它付得起。
+     */
+    val isActivated: Boolean
+        get() = readActivated(revision)
+
+    private fun readActivated(@Suppress("UNUSED_PARAMETER") at: Int): Boolean =
+        NativeHook.activationVerify(
+            runCatching { reader().getString(SettingsKeys.ACTIVATION_TOKEN, null) }.getOrNull(),
+            BuildConfig.VERSION_CODE,
+        )
+
+    /**
+     * 收下一枚新令牌。只有 [ActivationReceiver] 会调 —— 它在写之前已经用原生层验过，
+     * 所以这里不再验一遍。
+     */
+    fun acceptActivation(token: String, source: String) = write {
+        putString(SettingsKeys.ACTIVATION_TOKEN, token)
+        putString(SettingsKeys.ACTIVATION_SOURCE, source)
+        putLong(SettingsKeys.ACTIVATION_UPDATED_AT, System.currentTimeMillis())
     }
+
+    /**
+     * 撤销当前令牌。
+     *
+     * 三条路会走到这里，都要求**立刻**生效而不是等过期：签发方在库里确认已经退群、
+     * 签发方被卸载、签发方被移出了框架作用域（后两条见 [ActivationAudit]）。
+     *
+     * 令牌本身被删掉，签发方和时间戳留着 —— 界面要能说清「是谁、什么时候失效的」，
+     * 而这两个值不参与任何判定。
+     */
+    fun revokeActivation() = write {
+        remove(SettingsKeys.ACTIVATION_TOKEN)
+        putLong(SettingsKeys.ACTIVATION_UPDATED_AT, System.currentTimeMillis())
+    }
+
+    private fun readNullableString(
+        @Suppress("UNUSED_PARAMETER") at: Int,
+        key: String,
+    ): String? = runCatching { reader().getString(key, null) }.getOrNull()
+
+    private fun readLong(
+        @Suppress("UNUSED_PARAMETER") at: Int,
+        key: String,
+    ): Long = runCatching { reader().getLong(key, 0L) }.getOrDefault(0L)
 
     // --- typed helpers used by the screens ---------------------------------
 
@@ -292,32 +415,27 @@ class ModuleSettings private constructor(context: Context) {
      * **全量覆盖**：预设没提到的项回到 hooker 声明的默认值，而不是保留现状 ——
      * 否则「换一个预设」的结果会取决于之前是什么状态，用户没法预期。
      *
-     * 一次事务写完再 `revision++`，界面只重组一次。
+     * 整套一次性写完（[write] 里是一个 editor 一次 commit），界面只重组一次。
      */
-    fun applyPreset(hooker: AppHooker, preset: HookPreset) {
-        runCatching {
-            val editor = reader().edit()
-            hooker.features.forEach { feature ->
-                val on = preset.features[feature.id] ?: feature.defaultEnabled
-                editor.putBoolean(SettingsKeys.feature(hooker.id, feature.id), on)
-            }
-            hooker.options.forEach { option ->
-                val key = SettingsKeys.value(hooker.id, option.key)
-                when (val given = preset.options[option.key]) {
-                    is Int -> editor.putInt(key, given)
-                    is String -> editor.putString(key, given)
-                    else -> when (option) {
-                        is HookOption.Number -> editor.putInt(key, option.default)
-                        is HookOption.Choice -> editor.putInt(key, option.default)
-                        is HookOption.Text -> editor.putString(key, option.default)
-                        is HookOption.KeyMap -> editor.putString(key, option.default)
-                        is HookOption.AppList -> editor.putString(key, option.default)
-                    }
+    fun applyPreset(hooker: AppHooker, preset: HookPreset) = write {
+        hooker.features.forEach { feature ->
+            val on = preset.features[feature.id] ?: feature.defaultEnabled
+            putBoolean(SettingsKeys.feature(hooker.id, feature.id), on)
+        }
+        hooker.options.forEach { option ->
+            val key = SettingsKeys.value(hooker.id, option.key)
+            when (val given = preset.options[option.key]) {
+                is Int -> putInt(key, given)
+                is String -> putString(key, given)
+                else -> when (option) {
+                    is HookOption.Number -> putInt(key, option.default)
+                    is HookOption.Choice -> putInt(key, option.default)
+                    is HookOption.Text -> putString(key, option.default)
+                    is HookOption.KeyMap -> putString(key, option.default)
+                    is HookOption.AppList -> putString(key, option.default)
                 }
             }
-            editor.apply()
         }
-        revision++
     }
 
     /** 当前配置正好等于哪一套预设；都不等于就是 null（「自定义」）。 */

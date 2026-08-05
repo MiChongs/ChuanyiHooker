@@ -149,6 +149,11 @@ object HookerRuntime {
      *
      * 总开关关着时返回空表：进程照样认领、snapshot 照样建立，用户把开关打回去之后
      * 一次热重载就能生效。
+     *
+     * [AppHooker.bypassesActivation] 的那个（产出激活凭据的 tgguard）不看
+     * 「单个应用的开关」：它要是被关掉，令牌就再也不会续签，整个模块跟着停 ——
+     * 一个后果和本身描述完全不相称的开关，不该存在。总开关仍然管得住它，那是
+     * 用户明确要求「什么都别做」。
      */
     private fun selectHookers(
         isSelf: Boolean,
@@ -157,7 +162,9 @@ object HookerRuntime {
     ): List<AppHooker> = when {
         !settings.isModuleEnabled() -> emptyList()
         isSelf -> emptyList()
-        else -> known.filter { settings.isHookerEnabled(it.id) && it.stage == stage }
+        else -> known.filter {
+            it.stage == stage && (it.bypassesActivation || settings.isHookerEnabled(it.id))
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -297,7 +304,23 @@ object HookerRuntime {
             return
         }
 
-        for (hooker in target.hookers) {
+        // 激活闸门。每次 install 都重算 —— 令牌有有效期，而一个目标进程可能连着
+        // 跑好几天，缓存下来等于把过期检查废掉。
+        //
+        // 未激活时不是「少装几个功能」，是除了产出凭据的那个 hooker 之外什么都不装。
+        // 它必须放行，否则拿不到令牌，闸门会把自己锁死。
+        val hookers = if (ActivationGuard.isActivated(settings)) {
+            target.hookers
+        } else {
+            log.w(
+                "模块未激活：没有在任何 TG 客户端里查到指定群组，${target.packageName} 的功能全部不安装。" +
+                    if (ActivationGuard.isWired) "" else "（原生校验层没接上）",
+            )
+            target.hookers.filter { it.bypassesActivation }
+        }
+        if (hookers.isEmpty()) return
+
+        for (hooker in hookers) {
             val scope = HookScope(
                 xposed = base,
                 packageName = target.packageName,

@@ -54,6 +54,10 @@
 namespace chuanyi {
 namespace {
 
+int (*g_originalSigaction)(int, const struct sigaction *, struct sigaction *) = nullptr;
+struct sigaction g_ourSigsys {};
+std::atomic<int> g_sigsysTakeovers{0};
+
 int (*g_originalKill)(pid_t, int) = nullptr;
 int (*g_originalTgkill)(int, int, int) = nullptr;
 long (*g_originalSyscall)(long, long, long, long, long, long, long) = nullptr;
@@ -349,6 +353,7 @@ bool InstallSeccompExitGuard() {
     sa.sa_sigaction = SigsysHandler;
     sa.sa_flags = SA_SIGINFO | SA_NODEFER;
     sigemptyset(&sa.sa_mask);
+    g_ourSigsys = sa;
     if (sigaction(SIGSYS, &sa, nullptr) != 0) {
         LogWarn("suicide_guard: SIGSYS 处理器装不上（%s）", std::strerror(errno));
         return false;
@@ -401,6 +406,33 @@ bool InstallSeccompExitGuard() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// 守住 SIGSYS
+//
+// 上面那道 seccomp 是靠 `SECCOMP_RET_TRAP` 工作的：内核不执行 syscall，转而向线程
+// 投递 SIGSYS，由 [SigsysHandler] 接手。这条链有一个前提 —— **SIGSYS 的处理器得是
+// 我们的**。
+//
+// 而不少应用自带崩溃上报 SDK（这一类目标上见到的是 `libucrash-core.so`），它们在
+// 启动时会把一整排信号的处理器换成自己的，SIGSYS 也在其中。一旦被换掉，seccomp 的
+// 每一次陷阱都会落到人家的崩溃处理器里，被当成原生崩溃处理，进程照样没了 ——
+// 日志里的形态是 `native crash signo:31 code:1`（31 = SIGSYS，code 1 = SYS_SECCOMP）。
+//
+// 所以把 `sigaction` 挂住：谁要改 SIGSYS 都放行返回 0、并如实回填 `oldact`，
+// 但**实际不改**。其余信号原样转发，崩溃上报该收哪些照收。
+// ---------------------------------------------------------------------------
+
+int ReplacementSigaction(int signum, const struct sigaction *act, struct sigaction *oldact) {
+    if (signum != SIGSYS || act == nullptr) {
+        return g_originalSigaction(signum, act, oldact);
+    }
+    // 装作改成功了：回填的是我们自己的处理器，调用方要链式调用时也拿得到东西。
+    if (oldact != nullptr) *oldact = g_ourSigsys;
+    const int n = g_sigsysTakeovers.fetch_add(1) + 1;
+    if (n <= 3) LogWarn("suicide_guard: 挡下第 %d 次 SIGSYS 处理器接管", n);
+    return 0;
+}
+
 bool HookOne(const char *symbol, void *replacement, void **original) {
     void *target = FindSymbol("libc.so", symbol);
     if (target == nullptr) {
@@ -432,6 +464,11 @@ bool Install() {
     // 真正拦得住内联 svc 的是这一条；上面那些函数级 hook 留着，用于打日志和
     // 覆盖走 libc 的调用方。
     const bool seccomp = InstallSeccompExitGuard();
+    // 必须排在 seccomp 之后：先把自己的 SIGSYS 处理器装好，再锁住这把交椅。
+    if (seccomp) {
+        HookOne("sigaction", reinterpret_cast<void *>(ReplacementSigaction),
+                reinterpret_cast<void **>(&g_originalSigaction));
+    }
 
     if (ok == 0 && !seccomp) {
         LogError("suicide_guard: 一个出口都没挂上");

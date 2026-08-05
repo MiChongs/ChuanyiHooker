@@ -240,6 +240,45 @@ void *JniRegistrationAddress(const char *className, const char *methodName);
 bool ConstantOnJniRegister(const char *className, const char *methodName, intptr_t value);
 
 // --------------------------------------------------------------------------
+// 模块激活校验
+//
+// 判据是「本机的 Telegram（或第三方 TG 客户端）里有没有那个群」，而判定代码不在
+// 这个 .so 里 —— 它被单独编译、加密，运行时解到匿名内存里执行，见 activation.cpp
+// 和 payload/。这一层只是把入口暴露给 JNI。
+//
+// 两个动作分居两处进程，中间靠一枚带 MAC 的令牌连起来：
+//
+//   探测   只能在 TG 客户端自己的进程里做（别人读不到它的 files/cache4.db），
+//          命中就签发令牌
+//   校验   在每一个被注入的进程里做，判断令牌是不是本模块签的、有没有过期
+//
+// 这样「有没有那个群」这件事只需要在 TG 进程里回答一次，其余进程只认令牌。
+// --------------------------------------------------------------------------
+
+/// 令牌的 hex 长度（不含结尾 0）。调用方按它备缓冲区。
+constexpr size_t kActivationTokenHexLength = 48;
+
+/// 探测 `dbPath` 指向的 `cache4.db`；命中时把令牌写成 hex 字符串到 `outHex`。
+///
+/// 同目录下的 `<dbPath>-wal` 会被一并考虑 —— Telegram 跑的是 WAL 模式，刚加进来的
+/// 群很可能还没落进主库。
+///
+/// `sourceHash` 是签发方包名的 FNV-1a，会被签进令牌 —— 撤销时据此认人。
+///
+/// 返回值分三档，**0 和 3 的区别是「退群即停用」那条链路的关键**：
+///
+///   0  权威的「没有」：库读通了、表结构也认出来了，就是没这个群
+///   1  有，`outHex` 已填
+///   2  入参不合法
+///   3  结论不可信：文件打不开、不是 SQLite 库、或者连表结构都没认出来
+int ActivationProbe(const char *dbPath, uint32_t moduleVersion, uint32_t today, uint32_t sourceHash,
+                    char *outHex, size_t outHexCapacity);
+
+/// 令牌是不是本模块签发的，且签发日在 `today` 往前 `ttlDays` 天以内。
+bool ActivationVerify(const char *tokenHex, uint32_t moduleVersion, uint32_t today,
+                      uint32_t ttlDays);
+
+// --------------------------------------------------------------------------
 // C++ hookers
 //
 // For targets that need a genuine inline hook with a replacement function.

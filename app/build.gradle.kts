@@ -387,6 +387,10 @@ dependencies {
 
     // --- hookers ---------------------------------------------------------
     // One line per target app. Discovery and scope are automatic.
+    //
+    // tgguard 不是普通目标：它读 TG 客户端的本地会话库，产出模块的激活凭据。
+    // 少了它整个模块都装不上东西，所以它排在最前面，别跟着字母序被挪走。
+    implementation(project(":hookers:tgguard"))
     implementation(project(":hookers:paisa"))
     implementation(project(":hookers:hills"))
     implementation(project(":hookers:skypulse"))
@@ -407,6 +411,7 @@ dependencies {
     implementation(project(":hookers:bridgeaudio"))
     implementation(project(":hookers:wink"))
     implementation(project(":hookers:poweramp"))
+    implementation(project(":hookers:cellularpro"))
     // ---------------------------------------------------------------------
 
     compileOnly(libs.libxposed.api)
@@ -452,6 +457,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.core)
 
     implementation(libs.coil.compose.core)
+
+    // 赞赏页那两个收款地址的二维码。只用它的编码器，画图是自己的 Canvas ——
+    // 见 ui/component/QrCode.kt 里「为什么不生成 Bitmap」那段。
+    implementation(libs.zxing.core)
 
     // 关于页的开源许可清单。只要数据层，界面用 miuix 自己画（官方 compose-m3
     // 那套是 Material 长相，混进来会很突兀）。

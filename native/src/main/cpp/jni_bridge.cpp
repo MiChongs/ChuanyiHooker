@@ -232,6 +232,45 @@ void SetVerbose(JNIEnv *, jclass, jboolean verbose) {
     chuanyi::SetVerbose(verbose == JNI_TRUE);
 }
 
+/**
+ * 探测一个 cache4.db。
+ *
+ * 返回状态码（见 chuanyi::ActivationProbe），命中时把令牌写进 `out[0]`。
+ *
+ * 之所以不是「返回令牌或 null」：调用方必须能分清**权威的「没有」**和「这个库读不
+ * 出来」。前者才是撤销已签发令牌的依据，后者只是这次白跑一趟 —— 混成同一个 null，
+ * 「退群之后立刻停用」就只能退化成等令牌过期。
+ */
+jint ActivationProbe(JNIEnv *env, jclass, jstring path, jint moduleVersion, jint today,
+                     jint sourceHash, jobjectArray out) {
+    const std::string dbPath = ToUtf8(env, path);
+    if (dbPath.empty()) return 2;
+
+    char token[chuanyi::kActivationTokenHexLength + 1] = {};
+    const int result = chuanyi::ActivationProbe(dbPath.c_str(),
+                                                static_cast<uint32_t>(moduleVersion),
+                                                static_cast<uint32_t>(today),
+                                                static_cast<uint32_t>(sourceHash), token,
+                                                sizeof(token));
+    if (result == 1 && out != nullptr && env->GetArrayLength(out) > 0) {
+        jstring value = env->NewStringUTF(token);
+        if (value != nullptr) {
+            env->SetObjectArrayElement(out, 0, value);
+            env->DeleteLocalRef(value);
+        }
+    }
+    return result;
+}
+
+jboolean ActivationVerify(JNIEnv *env, jclass, jstring token, jint moduleVersion, jint today,
+                          jint ttlDays) {
+    const std::string value = ToUtf8(env, token);
+    if (value.empty()) return JNI_FALSE;
+    return chuanyi::ActivationVerify(value.c_str(), static_cast<uint32_t>(moduleVersion),
+                                     static_cast<uint32_t>(today), static_cast<uint32_t>(ttlDays))
+           ? JNI_TRUE : JNI_FALSE;
+}
+
 jboolean ConstantOnJniRegister(JNIEnv *env, jclass, jstring className, jstring methodName,
                                jlong value) {
     const std::string owner = ToUtf8(env, className);
@@ -310,6 +349,8 @@ const JNINativeMethod kMethods[] = {
         {"nativeConstantOnJniRegister", "(Ljava/lang/String;Ljava/lang/String;J)Z", reinterpret_cast<void *>(ConstantOnJniRegister)},
         {"nativeJniRegistrationAddress", "(Ljava/lang/String;Ljava/lang/String;)J", reinterpret_cast<void *>(JniRegistrationAddress)},
         {"nativeJniRegistrations", "()[Ljava/lang/String;",              reinterpret_cast<void *>(JniRegistrations)},
+        {"nativeActivationProbe", "(Ljava/lang/String;III[Ljava/lang/String;)I", reinterpret_cast<void *>(ActivationProbe)},
+        {"nativeActivationVerify", "(Ljava/lang/String;III)Z",           reinterpret_cast<void *>(ActivationVerify)},
 };
 
 } // namespace
