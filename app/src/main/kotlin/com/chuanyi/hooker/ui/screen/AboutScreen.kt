@@ -167,8 +167,11 @@ private fun ModuleHeader() {
                     style = MiuixTheme.textStyles.title3,
                     fontWeight = FontWeight.Medium,
                 )
+                // 版本号形如 20260805.153045-a1b2c3d4，日期时间和提交号都在里面了；
+                // versionCode 就是同一时刻的秒数，再显示一遍是同一个信息的第二种写法。
+                // 规则见 app/build.gradle.kts 的「版本号」那节。
                 Text(
-                    text = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+                    text = BuildConfig.VERSION_NAME,
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                     modifier = Modifier.padding(top = 3.dp),

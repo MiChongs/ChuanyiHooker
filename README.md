@@ -240,6 +240,63 @@ Notes on the toolchain, so the settings do not look arbitrary:
 * R8 is off for release: the module is reflected into by the framework and its
   hookers are found through `ServiceLoader`.
 
+## 版本号
+
+不手工维护，两个值都从 **HEAD 的提交**算出来：
+
+| | 取值 | 例 |
+|---|---|---|
+| `versionName` | `yyyyMMdd.HHmmss-<提交号前 8 位>` | `20260805.153045-a1b2c3d4` |
+| `versionCode` | 同一时刻距 `2020-01-01T00:00:00Z` 的秒数 | `208085445` |
+
+时间取 **committer date**（不是 author date —— rebase / cherry-pick 之后只有前者会
+跟着变新，`versionCode` 的单调性靠它），按 `Asia/Shanghai` 渲染。时区写死不跟系统
+走，否则 CI（UTC）和本机会给同一个提交算出两个版本号。
+
+于是**同一个提交，什么时候、在哪台机器上构建，版本号都一样** —— 手里有个 APK 就能
+`git checkout` 回它对应的源码。顺带 `BuildConfig` 不随时间变，增量编译和构建缓存也
+不会因为「时间又走了一秒」整片失效。
+
+工作区脏的时候反过来，用**构建时刻**打戳并加后缀：
+
+```
+20260805.161207-a1b2c3d4-dirty     有未提交的改动
+20260805.161207-nogit              不是 git 仓库 / 还没有提交（例如源码压缩包）
+```
+
+脏代码不对应任何提交，照旧用提交时间的话，两个内容不同的包会显示成同一个版本，刷进
+手机后分不出装的是哪一次。干净工作区也想按构建时刻打戳（同一个提交要出好几个包）：
+
+```
+./gradlew :app:assembleRelease -PstampNow
+```
+
+不构建也能问出这次会打上的版本号，发版脚本用它：
+
+```
+./gradlew -q :app:versionInfo
+versionName=20260805.153045-a1b2c3d4
+versionCode=208085445
+```
+
+产物文件名跟着一起带上，落在 `app/build/outputs/apk/<variant>/`：
+
+```
+ChuanyiHooker-20260805.153045-a1b2c3d4-release.apk
+```
+
+两个取舍写在这里，省得回头怀疑是随手定的：
+
+* 分隔符用 `-` 而不是 semver 的 `+`。`+` 在 URL 里会被解成空格，挂到 Releases 上
+  下载下来名字就被改掉了。
+* `versionCode` 用秒数而不是 `yyMMddHH` 这类数字拼接。它必须单调递增，否则覆盖安装
+  会被 `INSTALL_FAILED_VERSION_DOWNGRADE` 挡掉；而拼接方案精确到分（`yyMMddHHmm`）
+  就已经超出 int 上限了，只能退到小时粒度。秒数到 2088 年才装不下，届时挪一次纪元。
+
+关于页只显示 `versionName`：`versionCode` 是同一时刻的另一种写法，显示两遍没有信息量。
+
+规则实现在 `app/build.gradle.kts` 的「版本号」一节。
+
 ## 签名
 
 主体是 **`CN=Chuanyi Tech, O=Chuanyi Tech, C=CN`**，密钥库用标准 **JKS**

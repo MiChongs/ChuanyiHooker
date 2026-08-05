@@ -1,5 +1,10 @@
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Properties
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
 
 plugins {
     alias(libs.plugins.android.application)
@@ -56,6 +61,116 @@ if (!canSign) {
 // 挂在 preBuild 上，这个错就出不了本机。校验本身见根 build.gradle.kts。
 tasks.named("preBuild") { dependsOn(":checkHookerScope") }
 
+// ---------------------------------------------------------------------------
+// 版本号：提交时间 + 提交号
+//
+//     versionName   20260805.153045-a1b2c3d4         工作区干净
+//                   20260805.161207-a1b2c3d4-dirty   有未提交的改动
+//                   20260805.161207-nogit            不是 git 仓库 / 还没有提交
+//     versionCode   该时刻距 2020-01-01T00:00:00Z 的秒数，如 208085445
+//
+// 时间取的是 **HEAD 的提交时间**，不是构建时刻：同一个提交今天编、下周编、换台
+// 机器编，版本号都一样 —— 手里有个包就能 checkout 回它对应的源码。顺带 BuildConfig
+// 不会每次构建都变，增量编译和构建缓存也就不会因为「时间又走了一秒」整片失效。
+//
+// 工作区脏的时候反过来，用构建时刻：那份代码不对应任何提交，再拿提交时间当版本号，
+// 两个内容不同的包会显示成同一个版本 —— 刷进手机后分不出装的是哪一次。而脏构建
+// 本来就在改代码、本来就要重编，版本号跟着变不额外花钱。
+//
+// 干净工作区也想按构建时刻打戳（同一个提交要出好几个包）：
+//     .\gradlew.bat :app:assembleRelease -PstampNow
+//
+// versionCode 必须单调递增，否则覆盖安装会被 INSTALL_FAILED_VERSION_DOWNGRADE 挡掉。
+// 秒数天然单调，而且和 versionName 里的时间是同一个东西的两种写法（所以关于页只显示
+// versionName，不再重复显示一遍 versionCode）。Int 到 2088 年才装不下。
+// ---------------------------------------------------------------------------
+
+/** versionCode 的纪元：2020-01-01T00:00:00Z。改它会让版本号整体倒退，不要动。 */
+val versionCodeEpochSeconds = 1_577_836_800L
+
+/**
+ * 版本号里的日期按这个时区渲染。写死而不是跟系统走 —— CI 上是 UTC，跟系统走的话同一个
+ * 提交在两台机器上会得出两个版本号，「同一提交 = 同一版本」当场不成立。
+ */
+val versionZone: ZoneId = ZoneId.of("Asia/Shanghai")
+
+/**
+ * 构建时刻（Unix 秒）。走 ValueSource 而不是直接 `Instant.now()`：配置缓存会把配置期
+ * 算出的普通值原样存下来，之后每次命中缓存拿到的都是缓存那一刻的时间，脏构建就又分不
+ * 出彼此了。ValueSource 每次构建开始都会重新求值 —— 这正是 Gradle 判断缓存还算不算数
+ * 的机制。
+ */
+abstract class BuildEpochSeconds : ValueSource<Long, ValueSourceParameters.None> {
+    override fun obtain(): Long = System.currentTimeMillis() / 1000L
+}
+
+/**
+ * 跑一条 git 命令取标准输出，失败返回 null。没装 git、不是仓库、命令报错一律走 null
+ * 分支 —— 从压缩包解出来的源码也应该能直接编，不该被版本号卡住。
+ */
+fun gitOrNull(vararg args: String): String? {
+    val exec = providers.exec {
+        workingDir = rootProject.projectDir
+        commandLine("git", *args)
+        isIgnoreExitValue = true
+    }
+    return runCatching {
+        val text = exec.standardOutput.asText.get()
+        text.trim().takeIf { exec.result.get().exitValue == 0 && it.isNotEmpty() }
+    }.getOrNull()
+}
+
+// %ct 是 committer date 的 Unix 秒，不是 %at（author date）—— rebase / cherry-pick 之后
+// 只有前者会跟着变新，versionCode 的单调性靠它。%H 取完整 hash 自己截 8 位：`%h`
+// 的长度由 core.abbrev 决定，会随仓库变大而变长，那样版本号的长度就不稳定了。
+val headCommit = gitOrNull("log", "-1", "--format=%ct %H")?.split(" ")
+val headEpochSeconds = headCommit?.getOrNull(0)?.toLongOrNull()
+val headShortHash = headCommit?.getOrNull(1)?.take(8)
+
+// --porcelain 有输出即为脏。work/ 那二十几万个文件被 .gitignore 整目录挡住，git 不会
+// 往里递归，所以这条命令在这个仓库里也是毫秒级。
+val isWorkTreeDirty = headShortHash != null && gitOrNull("status", "--porcelain") != null
+
+val versionStampSeconds: Long = headEpochSeconds
+    ?.takeUnless { isWorkTreeDirty || providers.gradleProperty("stampNow").isPresent }
+    ?: providers.of(BuildEpochSeconds::class) {}.get()
+
+val moduleVersionCode = (versionStampSeconds - versionCodeEpochSeconds)
+    .also {
+        if (it !in 1..Int.MAX_VALUE.toLong()) {
+            throw GradleException(
+                "versionCode 越界（$it）：打戳时刻 " +
+                    "${Instant.ofEpochSecond(versionStampSeconds)} 不在 2020-01-01 和 2088 年之间。" +
+                    "系统时钟不对，或者该换 versionCodeEpochSeconds 这个纪元了。",
+            )
+        }
+    }
+    .toInt()
+
+val moduleVersionName = buildString {
+    append(
+        DateTimeFormatter.ofPattern("yyyyMMdd.HHmmss")
+            .withZone(versionZone)
+            .format(Instant.ofEpochSecond(versionStampSeconds)),
+    )
+    append('-').append(headShortHash ?: "nogit")
+    if (isWorkTreeDirty) append("-dirty")
+}
+
+// 给发版脚本 / CI 用：不构建也能拿到这次会打上的版本号。
+//     .\gradlew.bat -q :app:versionInfo
+tasks.register("versionInfo") {
+    group = "help"
+    description = "打印本次构建会使用的 versionName / versionCode"
+    // 捕成局部量而不是在 doLast 里读 project，配置缓存才认。
+    val name = moduleVersionName
+    val code = moduleVersionCode
+    doLast {
+        println("versionName=$name")
+        println("versionCode=$code")
+    }
+}
+
 android {
     namespace = "com.chuanyi.hooker"
     compileSdk = 37
@@ -65,8 +180,9 @@ android {
         applicationId = "com.chuanyi.hooker"
         minSdk = 28
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.1.0"
+        // 见上面「版本号」那节：两个值都由 HEAD 的提交时间算出来，不手工维护。
+        versionCode = moduleVersionCode
+        versionName = moduleVersionName
     }
 
     buildFeatures {
@@ -166,6 +282,26 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_25
         targetCompatibility = JavaVersion.VERSION_25
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 产物文件名
+//
+// 默认叫 app-release.apk，攒几次构建就彼此没有区别了 —— 装到手机上想回头确认「这个包
+// 是哪次编的」只能靠文件时间。带上版本号之后，文件名本身就够定位到源码，也不必再靠
+// 目录去区分 debug / release。
+//
+//     ChuanyiHooker-20260805.153045-a1b2c3d4-release.apk
+//
+// 版本号里不用 `+`（semver 的构建元数据分隔符）就是为了这一步：`+` 在 URL 里会被解成
+// 空格，挂到 Releases 上下载会拿到一个名字被改掉的文件。
+// ---------------------------------------------------------------------------
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            output.outputFileName.set("ChuanyiHooker-$moduleVersionName-${variant.name}.apk")
+        }
     }
 }
 
