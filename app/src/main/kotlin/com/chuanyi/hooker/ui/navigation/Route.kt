@@ -30,6 +30,10 @@ sealed interface Route : NavKey {
     @Serializable
     data class HookerDetail(val hookerId: String) : Route
 
+    /** 设置：主题、界面、排查开关。 */
+    @Serializable
+    data object Settings : Route
+
     /** 原生层（Dobby）详情。 */
     @Serializable
     data object NativeLayer : Route

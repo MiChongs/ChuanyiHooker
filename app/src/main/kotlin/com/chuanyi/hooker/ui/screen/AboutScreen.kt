@@ -21,7 +21,6 @@ import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.nativehook.NativeHook
 import com.chuanyi.hooker.ui.component.AppIcon
 import com.chuanyi.hooker.ui.component.CommunityLinkRows
-import com.chuanyi.hooker.ui.component.FooterNote
 import com.chuanyi.hooker.ui.component.rememberAppIconLoader
 import com.chuanyi.hooker.ui.model.rememberOpenSourceLibraries
 import com.chuanyi.hooker.ui.navigation.LocalNavigator
@@ -31,15 +30,16 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.SmallTitle
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
-import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
- * 关于页同时兼作「高级」：框架版本、原生层、日志开关这些排查用的东西都在这儿，
- * 首页不放。
+ * 关于页：模块自己的版本、跑在什么框架上、原生层活没活、社区入口、开源许可。
+ *
+ * 只读信息 + 外部链接，没有开关 —— 开关都在设置页（[Route.Settings]，右上角齿轮）。
+ * 这一页原来兼作「高级」页放着详细日志开关，有了设置页之后那条搬过去了。
  *
  * 开源许可单独走二级页（[Route.Licenses]）：那是上百条的长列表，塞进页签里会把
- * 上面三节挤没。
+ * 上面几节挤没。
  */
 @Composable
 fun AboutScreen(
@@ -51,9 +51,6 @@ fun AboutScreen(
 
     val probedFramework = remember { ModuleStatus.frameworkName() }
     val nativeReady = remember { NativeHook.isAvailable }
-
-    val revision = settings.revision
-    val verboseLog = remember(revision) { settings.verboseLog }
 
     val framework = probedFramework.ifEmpty { settings.frameworkLabel }
     val service = settings.framework
@@ -130,19 +127,6 @@ fun AboutScreen(
             }
         }
 
-        item { SmallTitle("排查") }
-        item {
-            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                SwitchPreference(
-                    checked = verboseLog,
-                    onCheckedChange = { settings.verboseLog = it },
-                    title = "详细日志",
-                    summary = "把每次判断都写进日志，排查完建议关掉",
-                )
-            }
-        }
-
-        item { FooterNote("日志用 logcat 看，标签 ChuanyiHooker。") }
     }
 }
 

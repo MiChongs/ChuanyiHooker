@@ -143,6 +143,44 @@ Scaffold 自己的背景。少了它，内容里的透明区域会在模糊时�
 然后运行时用 `isRuntimeShaderSupported()` 门控。API 28-32 上所有 blur 路径都不执行，
 退化成不透明底色。合并后的 APK `minSdk` 仍是 28（`aapt dump badging` 可验证）。
 
+设置页里还有一个手动开关（`UiPreferences.blurEnabled`）。关掉和硬件不支持走的是同一
+条路：`rememberBlurBackdrop` 返回 null，采样层根本不建 —— 那是个整屏 `GraphicsLayer`，
+每帧要把 body 重录一遍，建了不用纯属白烧。
+
+## 主题与设置
+
+设置页在首页右上角的齿轮里（`Route.Settings`）。偏好存在**本地** SharedPreferences
+（`UiPreferences`，`hooker_ui`），不进 `ModuleSettings` 那份框架远程存储：界面长什么样
+跟被注入的目标进程没关系，塞进去只会让每个被 hook 的应用都存一份没人读的键。
+
+配色交给 miuix 的 `ThemeController`，两个维度拼出来：
+
+| 深浅 | 取色 | 结果 |
+|---|---|---|
+| 跟随系统 / 浅色 / 深色 | 默认 | miuix 内置那套蓝 |
+| 同上 | 跟随壁纸 | `platformDynamicColors`：Android 13 起读系统调色板里的种子色与风格，12 读 `system_*` 颜色角色 |
+| 同上 | 自定义 | materialkolor 按你选的种子色现算，可挑 9 种调色板风格和 2021 / 2025 两代色彩规范 |
+
+几个实现上的决定：
+
+* **深浅在这一侧解析完再交给 controller**，用显式的 `Light`/`Dark`/`MonetLight`/
+  `MonetDark`，不用 `System`/`MonetSystem`。否则「强制浅色」在深色系统上会被它自己那次
+  跟随系统的判断盖掉。
+* **走 `MiuixTheme(colors = …)` 而不是 `MiuixTheme(controller = …)`**：纯黑深色要在配色
+  算完之后改字段，controller 那个重载中间插不进手。代价是少一个 `LocalColorSchemeMode`，
+  而整个 miuix 只有 `MiuixTheme.isDynamicColor` 这个便利属性读它。
+* **纯黑只改 `background` 一个字段。** 卡片和栏用的是 `surfaceContainer` / `surface`，
+  保持原样才在纯黑底上分得出层次；Monet 配色里那些容器色带着壁纸色相，一起压黑等于把
+  取色的效果抹掉。
+* **系统栏图标明暗跟着主题走**（`WindowCompat` + `SideEffect`）。`enableEdgeToEdge()` 只在
+  Activity 创建时按系统深浅设一次，改主题不会回头通知它 —— 不补这一下，深色系统上强制
+  浅色主题会得到白底白图标，状态栏的时间和信号格当场消失。
+* **枚举按名字存，不存序号**：序号会随枚举增删漂移，改天在中间插一个值，所有人的设置就
+  悄悄变成别的选项。
+
+改设置即时生效：`UiPreferences` 的属性是 snapshot state，主题直接读它，所以既不需要
+「保存」按钮，也不需要重建 Activity。
+
 ## How the pieces fit
 
 **Entry.** `app/…/xposed/HookerEntry.kt` is the only class in

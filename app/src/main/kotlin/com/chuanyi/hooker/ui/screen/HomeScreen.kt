@@ -18,16 +18,23 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
 import com.chuanyi.hooker.data.CommunityInvite
 import com.chuanyi.hooker.data.ModuleSettings
+import com.chuanyi.hooker.ui.LocalUiPreferences
 import com.chuanyi.hooker.ui.component.BlurScaffold
 import com.chuanyi.hooker.ui.component.CommunityInviteDialog
 import com.chuanyi.hooker.ui.component.HookerTopAppBar
+import com.chuanyi.hooker.ui.navigation.LocalNavigator
+import com.chuanyi.hooker.ui.navigation.Route
 import kotlinx.coroutines.launch
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.GridView
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.Settings
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
  * 首页宿主：底部导航栏 + 三个平级页签。
@@ -41,7 +48,15 @@ import top.yukonga.miuix.kmp.icon.extended.Info
  */
 @Composable
 fun HomeScreen(settings: ModuleSettings) {
-    val pagerState = rememberPagerState(pageCount = { HomeTab.entries.size })
+    val navigator = LocalNavigator.current
+    val ui = LocalUiPreferences.current
+
+    // 落在哪一页由设置定。initialPage 只在第一次组合时读，之后改设置不会把当前页拽走。
+    val startPage = remember { ui.startTab.coerceIn(HomeTab.entries.indices) }
+    val pagerState = rememberPagerState(
+        initialPage = startPage,
+        pageCount = { HomeTab.entries.size },
+    )
     val scope = rememberCoroutineScope()
     val currentTab by remember { derivedStateOf { HomeTab.entries[pagerState.currentPage] } }
 
@@ -49,15 +64,27 @@ fun HomeScreen(settings: ModuleSettings) {
     val context = LocalContext.current
     val invite = remember(context) { CommunityInvite.get(context) }
 
-    // 不在首个页签时，返回键先回到首个页签，而不是直接退出应用。
-    // NavDisplay 只在栈深 > 1 时拦截返回，首页这一层是空着的，正好接管。
-    BackHandler(enabled = pagerState.currentPage != 0) {
-        scope.launch { pagerState.animateScrollToPage(0) }
+    // 不在启动页签时，返回键先回到启动页签，而不是直接退出应用。回的是「打开应用时看到的
+    // 那一页」而不是写死的第一页 —— 否则把启动页签设成「应用」的人，返回键会把他送到一个
+    // 他没主动去过的地方。NavDisplay 只在栈深 > 1 时拦截返回，首页这一层空着，正好接管。
+    BackHandler(enabled = pagerState.currentPage != startPage) {
+        scope.launch { pagerState.animateScrollToPage(startPage) }
     }
 
     BlurScaffold(
         topBar = {
-            HookerTopAppBar(title = currentTab.title)
+            HookerTopAppBar(
+                title = currentTab.title,
+                actions = {
+                    IconButton(onClick = { navigator.push(Route.Settings) }) {
+                        Icon(
+                            imageVector = MiuixIcons.Settings,
+                            contentDescription = "设置",
+                            tint = MiuixTheme.colorScheme.onBackground,
+                        )
+                    }
+                },
+            )
         },
         bottomBar = {
             NavigationBar(
