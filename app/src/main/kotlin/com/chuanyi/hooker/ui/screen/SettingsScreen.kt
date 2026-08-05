@@ -156,7 +156,6 @@ fun SettingsScreen(settings: ModuleSettings) {
                     )
                     SwitchPreference(
                         title = "纯黑背景",
-                        summary = "深色下把背景压成纯黑，OLED 屏这样才真的不点亮像素",
                         checked = ui.pureBlack,
                         onCheckedChange = { ui.pureBlack = it },
                         // 浅色下这个开关没有任何效果，与其让它看起来能点，不如置灰。
@@ -170,25 +169,19 @@ fun SettingsScreen(settings: ModuleSettings) {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                     WindowDropdownPreference(
                         title = "取色",
-                        summary = if (UiPreferences.canFollowWallpaper) {
-                            null
-                        } else {
-                            "系统取色要 Android 12 以上"
-                        },
+                        summary = "跟随壁纸需要 Android 12".takeIf { !UiPreferences.canFollowWallpaper },
                         items = colorSources.map { ColorSourceLabels.getValue(it) },
                         selectedIndex = colorSources.indexOf(ui.colorSource).coerceAtLeast(0),
                         onSelectedIndexChange = { ui.colorSource = colorSources[it] },
                     )
                     ArrowPreference(
                         title = "主题色",
-                        summary = "由它生成整套配色",
                         enabled = ui.colorSource == ColorSource.Custom,
                         endActions = { ColorSwatch(Color(ui.seedColor)) },
                         onClick = { showColorPicker = true },
                     )
                     WindowDropdownPreference(
                         title = "调色板风格",
-                        summary = "同一个主题色能生成出几种性格",
                         items = ThemePaletteStyle.entries.map { PaletteStyleLabels.getValue(it) },
                         selectedIndex = ThemePaletteStyle.entries.indexOf(ui.paletteStyle),
                         onSelectedIndexChange = { ui.paletteStyle = ThemePaletteStyle.entries[it] },
@@ -196,13 +189,11 @@ fun SettingsScreen(settings: ModuleSettings) {
                     )
                     WindowDropdownPreference(
                         title = "色彩规范",
-                        summary = if (ui.colorSpec == ThemeColorSpec.Spec2025 &&
-                            ui.paletteStyle !in Spec2025Styles
-                        ) {
-                            // 选了但不生效的情况必须说出来，否则表现是「改了没反应」。
-                            "当前风格没有 2025 实现，实际按 2021 出图"
-                        } else {
-                            "Material 的两代取色算法"
+                        // 选了不生效的情况必须说，否则表现就是「改了没反应」。其余时候不写
+                        // 副标题 —— 每行都挂一句解释，这一页就变成说明书了。
+                        summary = "当前风格没有 2025，实际按 2021 出图".takeIf {
+                            ui.colorSpec == ThemeColorSpec.Spec2025 &&
+                                ui.paletteStyle !in Spec2025Styles
                         },
                         items = ThemeColorSpec.entries.map { ColorSpecLabels.getValue(it) },
                         selectedIndex = ThemeColorSpec.entries.indexOf(ui.colorSpec),
@@ -217,18 +208,13 @@ fun SettingsScreen(settings: ModuleSettings) {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                     SwitchPreference(
                         title = "毛玻璃",
-                        summary = if (blurSupported) {
-                            "顶栏和底栏的渐进式模糊"
-                        } else {
-                            "这台设备不支持（要 Android 13 以上的 RuntimeShader）"
-                        },
+                        summary = "需要 Android 13".takeIf { !blurSupported },
                         checked = ui.blurEnabled && blurSupported,
                         onCheckedChange = { ui.blurEnabled = it },
                         enabled = blurSupported,
                     )
                     WindowDropdownPreference(
                         title = "启动页签",
-                        summary = "打开应用先落在哪一页",
                         items = HomeTab.entries.map { it.title },
                         selectedIndex = ui.startTab.coerceIn(HomeTab.entries.indices),
                         onSelectedIndexChange = { ui.startTab = it },
@@ -241,7 +227,7 @@ fun SettingsScreen(settings: ModuleSettings) {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                     SwitchPreference(
                         title = "详细日志",
-                        summary = "把每次判断都写进日志，排查完建议关掉",
+                        summary = "排查完记得关",
                         checked = verboseLog,
                         onCheckedChange = { settings.verboseLog = it },
                     )
@@ -253,7 +239,7 @@ fun SettingsScreen(settings: ModuleSettings) {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                     ArrowPreference(
                         title = "恢复默认外观",
-                        summary = "只动这一页的外观与界面项，不碰任何 hook 开关",
+                        summary = "不动 hook 开关",
                         onClick = { showResetConfirm = true },
                     )
                 }
@@ -276,7 +262,7 @@ fun SettingsScreen(settings: ModuleSettings) {
     ConfirmDialog(
         show = showResetConfirm,
         title = "恢复默认外观",
-        summary = "主题、配色、毛玻璃、启动页签都会回到初始值。",
+        summary = "外观设置全部回到初始值。",
         confirmText = "恢复",
         onDismiss = { showResetConfirm = false },
         onConfirm = {
@@ -320,7 +306,6 @@ private fun SeedColorDialog(
     WindowDialog(
         show = show,
         title = "主题色",
-        summary = "整套配色由这一个颜色推导出来",
         onDismissRequest = onDismiss,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
