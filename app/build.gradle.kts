@@ -406,6 +406,7 @@ dependencies {
     implementation(project(":hookers:gboard"))
     implementation(project(":hookers:bridgeaudio"))
     implementation(project(":hookers:wink"))
+    implementation(project(":hookers:poweramp"))
     // ---------------------------------------------------------------------
 
     compileOnly(libs.libxposed.api)

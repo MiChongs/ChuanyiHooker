@@ -81,6 +81,7 @@ class MyHooker : AppHooker {
 | esj | `com.gx.sw.qa.fkssj004.esj` | 服务端权威，只做客户端侧：协议观察台 / 离线模式 |
 | gboard | `com.google.android.inputmethod.latin` | 剪贴板的三处硬限制 + 按键上下滑 + 终端不降级为密码键盘 |
 | bridgeaudio | `app.bridgeaudio` | 本地权益布尔 + PairIP 许可校验（后者才是冻结 Google 起不来的原因） |
+| poweramp | `com.maxmpz.audioplayer` | 原生授权引擎的结果 Bundle 与共享状态块；设置备份的加解密另绕一层 |
 
 ## 构建
 

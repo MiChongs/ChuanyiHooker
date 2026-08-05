@@ -62,6 +62,30 @@ jboolean WriteMemory(JNIEnv *env, jclass, jlong address, jbyteArray bytes) {
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+/**
+ * Address of the memory a direct ByteBuffer wraps, or 0.
+ *
+ * The point is that it ignores Java's read-only flag. `asReadOnlyBuffer()`
+ * produces a view that refuses `putInt`, but the flag lives in the Java object,
+ * not in the mapping — a target that hands such a view to its own native code
+ * (so that side can write while Java only reads) is still writable through
+ * here, which is exactly the case worth reaching.
+ *
+ * Returns 0 for a heap-backed buffer: there is no stable address to hand out,
+ * since the GC may move the backing array at any time.
+ */
+jlong DirectBufferAddress(JNIEnv *env, jclass, jobject buffer) {
+    if (buffer == nullptr) return 0;
+    void *addr = env->GetDirectBufferAddress(buffer);
+    return static_cast<jlong>(reinterpret_cast<uintptr_t>(addr));
+}
+
+/** Byte length of a direct ByteBuffer's memory, or -1 when it is not direct. */
+jlong DirectBufferCapacity(JNIEnv *env, jclass, jobject buffer) {
+    if (buffer == nullptr) return -1;
+    return static_cast<jlong>(env->GetDirectBufferCapacity(buffer));
+}
+
 jbyteArray ReadMemory(JNIEnv *env, jclass, jlong address, jint size) {
     if (address == 0 || size <= 0) return nullptr;
     std::vector<uint8_t> buffer(static_cast<size_t>(size));
@@ -269,6 +293,8 @@ const JNINativeMethod kMethods[] = {
         {"nativePatchMemory", "(J[B)Z",                                  reinterpret_cast<void *>(PatchMemory)},
         {"nativeWriteMemory", "(J[B)Z",                                  reinterpret_cast<void *>(WriteMemory)},
         {"nativeReadMemory",  "(JI)[B",                                  reinterpret_cast<void *>(ReadMemory)},
+        {"nativeDirectBufferAddress", "(Ljava/lang/Object;)J",           reinterpret_cast<void *>(DirectBufferAddress)},
+        {"nativeDirectBufferCapacity", "(Ljava/lang/Object;)J",          reinterpret_cast<void *>(DirectBufferCapacity)},
         {"nativeFindPatternInModule", "(Ljava/lang/String;[BI)J",        reinterpret_cast<void *>(FindPatternInModule)},
         {"nativeCountPatternInModule", "(Ljava/lang/String;[B)I",        reinterpret_cast<void *>(CountPatternInModule)},
         {"nativeReplaceInMemory", "([B[BII)I",                           reinterpret_cast<void *>(ReplaceInMemory)},

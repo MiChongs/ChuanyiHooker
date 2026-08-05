@@ -131,6 +131,29 @@ object NativeHook {
     fun moduleBase(library: String): Long =
         if (!isAvailable) 0L else runCatching { nativeModuleBase(library) }.getOrDefault(0L)
 
+    /**
+     * 一个 direct `ByteBuffer` 背后那块内存的地址，拿不到返回 0。
+     *
+     * 存在的理由是它**不认 Java 那个只读标志**。`asReadOnlyBuffer()` 造出来的视图
+     * 不接受 `putInt`，但只读只写在 Java 对象里，映射本身照样可写 —— 目标把这样一个
+     * 视图交给自己的原生代码（那边写、Java 只读）时，从这里仍然写得进去，而那正是
+     * 值得够到的那种缓冲区。配合 [writeMemory] 用。
+     *
+     * 堆缓冲区返回 0：GC 随时会搬动它的后备数组，没有可以交出去的稳定地址。
+     *
+     * @param buffer 传 `java.nio.ByteBuffer`；类型写成 Any 是为了不在这一层引入 nio 依赖
+     */
+    fun directBufferAddress(buffer: Any?): Long {
+        if (!isAvailable || buffer == null) return 0L
+        return runCatching { nativeDirectBufferAddress(buffer) }.getOrDefault(0L)
+    }
+
+    /** direct `ByteBuffer` 那块内存有多少字节；不是 direct 的返回 -1。 */
+    fun directBufferCapacity(buffer: Any?): Long {
+        if (!isAvailable || buffer == null) return -1L
+        return runCatching { nativeDirectBufferCapacity(buffer) }.getOrDefault(-1L)
+    }
+
     /** Reads [size] bytes at [address]; null when the range is not readable. */
     fun readMemory(address: Long, size: Int): ByteArray? {
         if (!isAvailable || address == 0L || size <= 0) return null
@@ -450,6 +473,8 @@ object NativeHook {
     private external fun nativePatchMemory(address: Long, bytes: ByteArray): Boolean
     private external fun nativeWriteMemory(address: Long, bytes: ByteArray): Boolean
     private external fun nativeReadMemory(address: Long, size: Int): ByteArray?
+    private external fun nativeDirectBufferAddress(buffer: Any): Long
+    private external fun nativeDirectBufferCapacity(buffer: Any): Long
     private external fun nativeFindPatternInModule(library: String, pattern: ByteArray, skip: Int): Long
     private external fun nativeCountPatternInModule(library: String, pattern: ByteArray): Int
     private external fun nativeReplaceInMemory(needle: ByteArray, replacement: ByteArray, limit: Int, scope: Int): Int
