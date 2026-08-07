@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+        Package visibility for this hooker's target.
+
+        The target is itself an Xposed module: its paid features render inside
+        SystemUI and a batch of ColorOS packages, but the entitlement flag lives
+        in the module's own remote preferences — so this hooker only ever needs
+        to be injected into the module app itself.
+
+        Keep in sync with src/main/resources/META-INF/xposed/scope.list.
+    -->
+    <queries>
+        <package android:name="org.chsi.min" />
+    </queries>
+
+</manifest>

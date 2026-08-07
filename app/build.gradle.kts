@@ -412,6 +412,7 @@ dependencies {
     implementation(project(":hookers:wink"))
     implementation(project(":hookers:poweramp"))
     implementation(project(":hookers:cellularpro"))
+    implementation(project(":hookers:osmin"))
     // ---------------------------------------------------------------------
 
     compileOnly(libs.libxposed.api)
