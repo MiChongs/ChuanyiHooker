@@ -35,6 +35,7 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.GridView
 import top.yukonga.miuix.kmp.icon.extended.Home
 import top.yukonga.miuix.kmp.icon.extended.Info
+import top.yukonga.miuix.kmp.icon.extended.ListView
 import top.yukonga.miuix.kmp.icon.extended.Settings
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -84,7 +85,17 @@ fun HomeScreen(settings: ModuleSettings) {
         topBar = {
             HookerTopAppBar(
                 title = currentTab.title,
+                // 日志和设置都挂在这里，而不是塞进设置页里的某一行：「装上了没反应」
+                // 是这个模块最高频的问题，答案全在日志里 —— 它得和齿轮一样，在哪个
+                // 页签下都是一眼看得到、一下点得到。
                 actions = {
+                    IconButton(onClick = { navigator.push(Route.Logs) }) {
+                        Icon(
+                            imageVector = MiuixIcons.ListView,
+                            contentDescription = "日志",
+                            tint = MiuixTheme.colorScheme.onBackground,
+                        )
+                    }
                     IconButton(onClick = { navigator.push(Route.Settings) }) {
                         Icon(
                             imageVector = MiuixIcons.Settings,

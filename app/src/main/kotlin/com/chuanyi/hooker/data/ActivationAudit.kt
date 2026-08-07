@@ -10,6 +10,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.chuanyi.hooker.core.ActivationToken
 import com.chuanyi.hooker.core.HookerRegistry
 import kotlinx.coroutines.Dispatchers
@@ -146,7 +149,22 @@ object ActivationAudit {
 }
 
 /**
- * 把稽核挂到组合上：每次设置变动、或者框架那边的作用域变了，就重跑一遍。
+ * 把稽核挂到组合上：每次回到前台重拉一遍作用域，作用域或设置一变就重跑一遍稽核。
+ *
+ * ## 必须挂在「不管激活与否都会渲染」的地方
+ *
+ * 这个函数原本只被 `ActivationLockScreen` 调用，而那一屏**只在未激活时才渲染** ——
+ * 于是负责发现「签发方已被移出作用域」的稽核，只在已经锁上之后才跑，激活状态下
+ * 一次都不跑。表现就是「我把作用域取消了，模块照样能用」。同一个原因还让
+ * [FrameworkService.refresh] 在激活状态下从不被调用，手里那份作用域永远停在进程
+ * 启动那一刻。
+ *
+ * 所以它现在由 `MainActivity` 在分支**之前**调用，两种状态下都跑。
+ *
+ * ## 为什么要在 RESUMED 时重拉
+ *
+ * 用户是**离开这个界面**去改状态的：去 LSPosed 改作用域、去 TG 切账号或退群。
+ * 回来时如果不重拉，稽核看的还是旧数据，等于没跑。
  *
  * 稽核有副作用（可能删令牌），所以不能写在 `remember` 里 —— 那会在每次重组、每次
  * 重建时随机地跑。放进 [LaunchedEffect] 才有确定的触发时机。
@@ -158,7 +176,14 @@ object ActivationAudit {
 fun rememberActivationStatus(settings: ModuleSettings): ActivationAudit.Status {
     val context = LocalContext.current
     val framework = settings.framework
+    val lifecycleOwner = LocalLifecycleOwner.current
     var status by remember { mutableStateOf(ActivationAudit.Status.Unknown) }
+
+    LaunchedEffect(lifecycleOwner, framework) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            framework.refresh()
+        }
+    }
 
     LaunchedEffect(
         settings.revision,

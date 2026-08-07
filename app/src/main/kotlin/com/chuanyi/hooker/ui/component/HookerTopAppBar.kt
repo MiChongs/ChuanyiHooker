@@ -22,6 +22,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * [onBack] 为 null 时不画返回按钮（首页用）。传了 [scrollBehavior] 就自带 miuix
  * 的大标题折叠动画，各页面只要把 `nestedScroll` 接上即可。
+ *
+ * [bottomContent] 挂在标题区**下方**，且**不跟着折叠** —— 搜索框、筛选页签这类
+ * 「一直要够得到」的控件放这里。放在栏里而不是列表第一项有两个好处：滚动时它不会
+ * 被推走，以及它落在 [BlurScaffold] 那层渐进式蒙层里，和标题共享同一块毛玻璃。
  */
 @Composable
 fun HookerTopAppBar(
@@ -31,6 +35,7 @@ fun HookerTopAppBar(
     onBack: (() -> Unit)? = null,
     scrollBehavior: ScrollBehavior? = null,
     actions: @Composable RowScope.() -> Unit = {},
+    bottomContent: @Composable () -> Unit = {},
 ) {
     TopAppBar(
         title = title,
@@ -42,6 +47,7 @@ fun HookerTopAppBar(
             if (onBack != null) BackNavigationIcon(onClick = onBack)
         },
         actions = actions,
+        bottomContent = bottomContent,
     )
 }
 

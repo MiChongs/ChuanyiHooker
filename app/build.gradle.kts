@@ -438,6 +438,9 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
     implementation(libs.compose.ui.tooling.preview)
 
+    // 日志页那套等宽字体。走 Downloadable Fonts，字体文件不进 APK。
+    implementation(libs.compose.ui.text.google.fonts)
+
     implementation(libs.miuix.ui)
     implementation(libs.miuix.preference)
     implementation(libs.miuix.icons)

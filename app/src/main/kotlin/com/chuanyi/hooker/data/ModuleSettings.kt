@@ -10,6 +10,7 @@ import com.chuanyi.hooker.BuildConfig
 import com.chuanyi.hooker.core.AppHooker
 import com.chuanyi.hooker.core.HookOption
 import com.chuanyi.hooker.core.HookPreset
+import com.chuanyi.hooker.core.LogLevel
 import com.chuanyi.hooker.core.SettingsKeys
 import com.chuanyi.hooker.nativehook.NativeHook
 import io.github.libxposed.service.XposedService
@@ -321,9 +322,32 @@ class ModuleSettings private constructor(context: Context) {
         get() = getBoolean(SettingsKeys.MASTER_ENABLED, true)
         set(value) = setBoolean(SettingsKeys.MASTER_ENABLED, value)
 
-    var verboseLog: Boolean
-        get() = getBoolean(SettingsKeys.VERBOSE_LOG, false)
-        set(value) = setBoolean(SettingsKeys.VERBOSE_LOG, value)
+    /**
+     * 日志门槛。低于它的那些行在被注入的进程里就被丢掉了，不会产生任何开销。
+     *
+     * 读的时候要兼容旧键：只有「详细日志」开关的版本升上来时 [SettingsKeys.LOG_LEVEL]
+     * 还不存在，此时按那个开关折算 —— 和读侧 [com.chuanyi.hooker.core.RemoteHookerSettings.logLevel]
+     * 必须是同一套折算，否则界面显示的档和实际生效的档会对不上。
+     *
+     * 写的时候只写新键，旧键留在原地不管：万一用户装回旧版本，那边读到的仍是他
+     * 当初设的值，而不是一个被新版本改过的、他不知情的状态。
+     */
+    var logLevel: LogLevel
+        get() = readLogLevel(revision)
+        set(value) = setInt(SettingsKeys.LOG_LEVEL, value.id)
+
+    private fun readLogLevel(@Suppress("UNUSED_PARAMETER") at: Int): LogLevel {
+        val stored = runCatching { reader().getInt(SettingsKeys.LOG_LEVEL, -1) }.getOrDefault(-1)
+        if (stored >= 0) return LogLevel.byId(stored)
+        val legacy = runCatching { reader().getBoolean(SettingsKeys.VERBOSE_LOG, false) }
+            .getOrDefault(false)
+        return if (legacy) LogLevel.Debug else LogLevel.Default
+    }
+
+    /** 被注入的进程要不要把日志递回来。关掉之后「日志」那一页只剩模块自己的行。 */
+    var logRelay: Boolean
+        get() = getBoolean(SettingsKeys.LOG_RELAY, true)
+        set(value) = setBoolean(SettingsKeys.LOG_RELAY, value)
 
     fun isHookerEnabled(hookerId: String): Boolean =
         getBoolean(SettingsKeys.hookerEnabled(hookerId), true)

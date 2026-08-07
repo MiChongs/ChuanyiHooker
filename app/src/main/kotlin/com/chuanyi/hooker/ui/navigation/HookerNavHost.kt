@@ -27,6 +27,7 @@ import com.chuanyi.hooker.ui.screen.HomeScreen
 import com.chuanyi.hooker.ui.screen.HookerDetailScreen
 import com.chuanyi.hooker.ui.screen.LibraryLicenseScreen
 import com.chuanyi.hooker.ui.screen.LicensesScreen
+import com.chuanyi.hooker.ui.screen.LogScreen
 import com.chuanyi.hooker.ui.screen.NativeLayerScreen
 import com.chuanyi.hooker.ui.screen.SettingsScreen
 import kotlinx.serialization.modules.SerializersModule
@@ -102,6 +103,7 @@ fun HookerNavHost(settings: ModuleSettings) {
                 subclass(Route.HookerDetail::class)
                 subclass(Route.Settings::class)
                 subclass(Route.NativeLayer::class)
+                subclass(Route.Logs::class)
                 subclass(Route.Donate::class)
                 subclass(Route.Licenses::class)
                 subclass(Route.LibraryLicense::class)
@@ -146,6 +148,10 @@ fun HookerNavHost(settings: ModuleSettings) {
 
                 entry<Route.NativeLayer> {
                     NativeLayerScreen()
+                }
+
+                entry<Route.Logs> {
+                    LogScreen(settings = settings)
                 }
 
                 entry<Route.Donate> {

@@ -429,10 +429,15 @@ object NativeHook {
      * 见 `TgGuardHooker` 的定向撤销和 `ActivationAudit` 的作用域稽核。这里兜的是
      * 「两条主动链路都没被触发」的最坏情况。
      *
-     * 3 天是权衡：续签是每天一次，所以正常使用有两天余量，出门几天不看 TG 也不会
-     * 被打断；再往上加，被动兜底就形同虚设。
+     * 主动链路（切账号 / 退群后 TG 还活着或又开过一次、用户打开过模块界面、后台稽核
+     * 作业跑起来了）都是**立刻**生效的，见 `TgGuardHooker` 的定向撤销、
+     * `ActivationAudit` 的作用域稽核和 `ActivationJobService`。这里兜的是「上述全部
+     * 都没发生」的最坏情况。
+     *
+     * 2 天是权衡：续签在 TG 进程里每 6 小时一次，正常使用有充足余量；而后台稽核作业
+     * 已经把作用域那条路压到一天，有效期再放宽就只剩象征意义了。
      */
-    const val ACTIVATION_TTL_DAYS: Int = 3
+    const val ACTIVATION_TTL_DAYS: Int = 2
 
     /** [activationProbe] 的结果。三档的区别见每一档自己的说明。 */
     enum class ProbeOutcome {

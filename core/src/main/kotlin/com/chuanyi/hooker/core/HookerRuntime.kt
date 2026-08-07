@@ -45,7 +45,7 @@ object HookerRuntime {
 
     private var xposed: XposedInterface? = null
     private var settings: HookerSettings = HookerSettings.AllDefaults
-    private var log: HookerLog = HookerLog.root(null, false)
+    private var log: HookerLog = HookerLog.root(null, LogLevel.Default)
     private var modulePackage: String? = null
 
     /** Target claimed for this process, or null while we are just passing through. */
@@ -67,8 +67,20 @@ object HookerRuntime {
         xposed = base
         val remote = RemoteHookerSettings(base)
         settings = remote
-        log = HookerLog.root(base, remote.isVerbose())
+        log = HookerLog.root(base, remote.logLevel())
         modulePackage = runCatching { base.moduleApplicationInfo.packageName }.getOrNull()
+
+        // 日志回传。必须排在下面第一条 log 之前 —— 接线之后打的才递得出去，
+        // 而「模块在哪个进程里加载了」正是排查时最想看到的第一行。
+        //
+        // 热重载同样要重做：新一代的 LogRelay 是全新 object，上一代的队列和线程
+        // 随旧 classloader 一起走了。
+        LogRelay.configure(
+            modulePackage = modulePackage,
+            processName = param.processName,
+            enabled = remote.isLogRelayEnabled(),
+        )
+
         if (!remote.isBacked) {
             log.d("no remote preferences (embedded framework or module never opened); using defaults")
         }
@@ -309,14 +321,23 @@ object HookerRuntime {
         //
         // 未激活时不是「少装几个功能」，是除了产出凭据的那个 hooker 之外什么都不装。
         // 它必须放行，否则拿不到令牌，闸门会把自己锁死。
-        val hookers = if (ActivationGuard.isActivated(settings)) {
-            target.hookers
-        } else {
-            log.w(
-                "模块未激活：没有在任何 TG 客户端里查到指定群组，${target.packageName} 的功能全部不安装。" +
-                    if (ActivationGuard.isWired) "" else "（原生校验层没接上）",
-            )
-            target.hookers.filter { it.bypassesActivation }
+        val activated = ActivationGuard.isActivated(settings)
+        val hookers = if (activated) target.hookers else target.hookers.filter { it.bypassesActivation }
+
+        if (!activated) {
+            // 日志要分清「真的被拦下了」和「这个进程本来就只有校验用的 hooker」。
+            // TG 客户端进程属于后者 —— 在那里喊「功能全部不安装」是纯噪音，而且会把
+            // 排查方向直接带偏（那正是这套东西第一次调试时浪费掉的时间）。
+            val blocked = target.hookers.size - hookers.size
+            if (blocked > 0) {
+                log.w(
+                    "模块未激活：${target.packageName} 的 $blocked 个 hooker 不安装，" +
+                        "等群组校验通过后重启目标即可" +
+                        if (ActivationGuard.isWired) "" else "（原生校验层没接上）",
+                )
+            } else {
+                log.d("模块未激活，但 ${target.packageName} 只有校验用的 hooker，照常安装")
+            }
         }
         if (hookers.isEmpty()) return
 

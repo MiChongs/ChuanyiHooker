@@ -7,6 +7,7 @@ import android.os.SystemClock
 import com.chuanyi.hooker.BuildConfig
 import com.chuanyi.hooker.core.ActivationGuard
 import com.chuanyi.hooker.core.ActivationToken
+import com.chuanyi.hooker.core.LogLevel
 import com.chuanyi.hooker.nativehook.NativeHook
 
 /**
@@ -60,14 +61,24 @@ class ActivationReceiver : BroadcastReceiver() {
 
         val pending = goAsync()
         val appContext = context.applicationContext
+        // 激活状态一变，整个模块的行为就变了（未激活时一个 hook 都不装），而这件事
+        // 全程没有任何界面动作 —— 不留一行日志的话，用户回头只能看到「昨天还好好的」。
+        LogStore.restore(appContext)
         Thread({
             try {
                 val settings = ModuleSettings.get(appContext)
                 awaitBinder(settings)
                 if (revoke) {
-                    if (settings.activationToken == token) settings.revokeActivation()
+                    if (settings.activationToken == token) {
+                        settings.revokeActivation()
+                        LogStore.append(LogLevel.Warn, "activation", "$source 撤销了令牌")
+                    }
                 } else {
                     settings.acceptActivation(token, source)
+                    LogStore.append(LogLevel.Info, "activation", "收下 $source 签发的令牌")
+                    // 有的人装完模块、勾好作用域、开一次 TG 就再也不打开模块界面了。
+                    // 这条路径是唯一能保证后台稽核作业被排上的地方。
+                    ActivationJob.ensureScheduled(appContext)
                 }
             } finally {
                 pending.finish()

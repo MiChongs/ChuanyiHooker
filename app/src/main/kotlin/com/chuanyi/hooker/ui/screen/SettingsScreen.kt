@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
+import com.chuanyi.hooker.core.LogLevel
 import com.chuanyi.hooker.data.ColorSource
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.data.ThemeMode
@@ -119,7 +120,8 @@ fun SettingsScreen(settings: ModuleSettings) {
 
     val blurSupported = remember { isBlurSupported() }
     val revision = settings.revision
-    val verboseLog = remember(revision) { settings.verboseLog }
+    val logLevel = remember(revision) { settings.logLevel }
+    val logRelay = remember(revision) { settings.logRelay }
 
     var showColorPicker by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
@@ -222,15 +224,26 @@ fun SettingsScreen(settings: ModuleSettings) {
                 }
             }
 
-            item { SmallTitle("排查") }
+            item { SmallTitle("日志") }
             item {
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                    SwitchPreference(
-                        title = "详细日志",
-                        summary = "排查完记得关",
-                        checked = verboseLog,
-                        onCheckedChange = { settings.verboseLog = it },
+                    WindowDropdownPreference(
+                        title = "等级",
+                        // 说清楚「改完要重启目标」是必要的：门槛在每一代模块加载时
+                        // 读一次就定死了（见 HookerLog），拨完这一档不会立刻影响
+                        // 已经在跑的进程 —— 和功能开关是同一套规则。
+                        summary = "重启目标或热重载后生效".takeIf { logLevel != LogLevel.Default },
+                        items = LogLevel.entries.map { it.label },
+                        selectedIndex = LogLevel.entries.indexOf(logLevel),
+                        onSelectedIndexChange = { settings.logLevel = LogLevel.entries[it] },
                     )
+                    SwitchPreference(
+                        title = "回传到本机",
+                        checked = logRelay,
+                        onCheckedChange = { settings.logRelay = it },
+                    )
+                    // 这里只放两个开关，不放「查看日志」的入口 —— 那一个在首页顶栏，
+                    // 和齿轮并排。日志是排查时天天要开的东西，不该藏在设置的二级页里。
                 }
             }
 
@@ -244,7 +257,7 @@ fun SettingsScreen(settings: ModuleSettings) {
                 }
             }
 
-            item { FooterNote("日志用 logcat 看，标签 ChuanyiHooker。") }
+            item { FooterNote("被注入的进程写不了模块存储，日志靠广播递回来，关掉回传就只剩模块自己的行。") }
         }
     }
 

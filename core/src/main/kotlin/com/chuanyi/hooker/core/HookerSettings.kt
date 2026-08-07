@@ -11,6 +11,22 @@ object SettingsKeys {
     const val PREFS = "hooker_settings"
 
     const val MASTER_ENABLED = "module.enabled"
+
+    /**
+     * 日志门槛，存的是 [LogLevel.id]。
+     *
+     * 没有这个键时回落到旧的 [VERBOSE_LOG]（见 [HookerSettings.logLevel]）——
+     * 从只有「详细日志」那个开关的版本升上来的人不该被静默改掉行为。
+     */
+    const val LOG_LEVEL = "module.log_level"
+
+    /** 被注入的进程要不要把日志广播回模块应用（界面上的「日志」那一页）。 */
+    const val LOG_RELAY = "module.log_relay"
+
+    /**
+     * 旧版的「详细日志」开关。**只在 [LOG_LEVEL] 缺失时读，不再写。**
+     * 留着纯粹是为了升级路径，新代码一律走 [LOG_LEVEL]。
+     */
     const val VERBOSE_LOG = "module.verbose_log"
 
     /**
@@ -38,7 +54,21 @@ object SettingsKeys {
  */
 interface HookerSettings {
     fun isModuleEnabled(): Boolean
-    fun isVerbose(): Boolean
+
+    /** 日志门槛，低于它的直接丢。见 [HookerLog]。 */
+    fun logLevel(): LogLevel
+
+    /** 被注入的进程要不要把日志递回模块应用。见 [LogRelay]。 */
+    fun isLogRelayEnabled(): Boolean
+
+    /**
+     * 「详细」的旧说法，现在由 [logLevel] 推出来。
+     *
+     * 还留着是因为 `:native` 那一侧只需要一个布尔（它没有分级），入口在
+     * `HookerEntry` 里的 `NativeHook.setVerbose`。
+     */
+    fun isVerbose(): Boolean = logLevel().id <= LogLevel.Debug.id
+
     fun isHookerEnabled(hookerId: String): Boolean
     fun isFeatureEnabled(hookerId: String, featureId: String, default: Boolean): Boolean
     fun getString(hookerId: String, key: String, default: String?): String?
@@ -51,7 +81,11 @@ interface HookerSettings {
         /** Used when the framework refuses to hand out preferences. */
         val AllDefaults: HookerSettings = object : HookerSettings {
             override fun isModuleEnabled() = true
-            override fun isVerbose() = false
+            override fun logLevel() = LogLevel.Default
+
+            // 拿不到配置时不上报：递送要一次 binder 往返，而这种情况下模块应用
+            // 多半根本没装好，白发。
+            override fun isLogRelayEnabled() = false
             override fun isHookerEnabled(hookerId: String) = true
             override fun isFeatureEnabled(hookerId: String, featureId: String, default: Boolean) = default
             override fun getString(hookerId: String, key: String, default: String?) = default
@@ -81,9 +115,25 @@ class RemoteHookerSettings(xposed: XposedInterface) : HookerSettings {
     private fun bool(key: String, default: Boolean): Boolean =
         runCatching { prefs?.getBoolean(key, default) ?: default }.getOrDefault(default)
 
+    private fun int(key: String, default: Int): Int =
+        runCatching { prefs?.getInt(key, default) ?: default }.getOrDefault(default)
+
     override fun isModuleEnabled(): Boolean = bool(SettingsKeys.MASTER_ENABLED, true)
 
-    override fun isVerbose(): Boolean = bool(SettingsKeys.VERBOSE_LOG, false)
+    /**
+     * 门槛。没写过 [SettingsKeys.LOG_LEVEL] 时看旧的「详细日志」开关 —— 那个版本
+     * 的「开」对应现在的 [LogLevel.Debug]，「关」对应默认档。
+     *
+     * 用 -1 当哨兵而不是 `contains()`：远端那份配置的 `contains` 也要走一次 binder，
+     * 而一次 `getInt` 就能同时问出「有没有」和「是多少」。
+     */
+    override fun logLevel(): LogLevel {
+        val stored = int(SettingsKeys.LOG_LEVEL, -1)
+        if (stored >= 0) return LogLevel.byId(stored)
+        return if (bool(SettingsKeys.VERBOSE_LOG, false)) LogLevel.Debug else LogLevel.Default
+    }
+
+    override fun isLogRelayEnabled(): Boolean = bool(SettingsKeys.LOG_RELAY, true)
 
     override fun isHookerEnabled(hookerId: String): Boolean =
         bool(SettingsKeys.hookerEnabled(hookerId), true)

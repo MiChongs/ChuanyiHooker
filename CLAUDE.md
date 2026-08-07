@@ -48,8 +48,9 @@ apksigner verify --print-certs --min-sdk-version 24 (Get-ChildItem app\build\out
 ### 没有自动化测试
 
 仓库里没有 `src/test` / `src/androidTest`，也没有 CI。验证靠实机：装 APK → LSPosed 里勾选 →
-重启或强停目标 → 看模块状态页与 logcat（tag `ChuanyiHooker`，`HookerLog` 走框架日志器，
-`d()` 要在设置里开「详细日志」才出）。
+重启或强停目标 → 看模块状态页，以及**首页顶栏的日志入口**（齿轮左边那个；被注入的进程把日志广播
+回模块应用，见下方「日志」一节）。同一批行也在 logcat 里，tag `ChuanyiHooker`。门槛由
+设置 → 日志 → 等级 定，默认 `信息` —— `d()` / `v()` 要把那一档往下拨才出，且改完要重启目标或热重载。
 
 改 `app/proguard-rules.pro` 后**必须**按该文件末尾那五条清单实机走一遍：R8 会破坏的四处名字依赖
 全都表现为「编译通过、装上没反应、日志里什么都没有」。
@@ -121,6 +122,36 @@ saved state 数组**只能放 bootclasspath 类型**（String / Boolean / ClassL
 
 binder 到达前界面走本地存储并显示「未同步」，连上后把改动迁过去。界面自己的偏好（主题、毛玻璃、
 启动页签）另存本地，不占框架存储。
+
+### 日志
+
+分五级（`core/.../LogLevel.kt`：详细/调试/信息/警告/错误），门槛存在 `SettingsKeys.LOG_LEVEL`，
+默认 `信息`。`HookerLog` 在**每一代模块加载时**读一次门槛就定死了 —— 改完等同改功能开关，
+要重启目标或热重载。没写过该键时回落到旧的 `VERBOSE_LOG` 开关（开 = 调试），两侧的折算必须一致，
+否则界面显示的档和实际生效的档会对不上。
+
+一条日志同时走三处：框架日志器（拿不到就退 logcat）、以及 `LogRelay`。
+
+```
+被注入的进程                              模块应用
+HookerLog.write ─> LogRelay.offer ─┐
+                                    └─ 攒 400ms/64 条 ─> 广播 ─> LogReceiver ─> LogStore ─> 日志页
+                                                                                   └─> filesDir/logs/（轮转，两份共 1 MB）
+```
+
+**为什么要绕这一圈**：hook 跑在目标进程里，它的 logcat 行模块应用读不到（要 `READ_LOGS` 或 root），
+LSPosed 的模块日志又在管理器私有目录里。和激活令牌是同一个形状 —— 被注入的进程对模块存储只读，
+递不进去，只能广播。接收器因此**必须导出**（发送方是别人的 uid，`android:permission` 在这里不成立），
+于是任何应用都能塞几行假日志进来；可以接受，因为收进来的东西只会被显示，不参与任何判定。
+
+几个别踩的点：
+
+* `LogRelay` 里**任何地方都不能调 `HookerLog`** —— 会立刻绕回 `offer` 变成自喂死循环。
+* 队列满了丢**最旧的**并计数，丢了多少随下一批报上去，界面照实显示。洪峰时要看的是刚发生的那几条。
+* `PACKAGE_LOADED` 阶段目标还没有 `Application`，发不了广播。那些条目留在队列里等后台线程某轮
+  取到 Context 再一起送；时间戳是**入队时**记的，所以晚送不会让顺序或时间显示错乱。
+* 热重载换 classloader，新一代的 `LogRelay` 是全新 object —— `HookerRuntime.attach` 里那次
+  `configure` 两条路径都要跑到。
 
 ### 三层用户可配项
 

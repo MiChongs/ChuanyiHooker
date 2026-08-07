@@ -38,6 +38,10 @@ sealed interface Route : NavKey {
     @Serializable
     data object NativeLayer : Route
 
+    /** 日志：被注入的进程回传的行 + 模块自己的行。 */
+    @Serializable
+    data object Logs : Route
+
     /** 赞赏：收款地址与二维码。 */
     @Serializable
     data object Donate : Route

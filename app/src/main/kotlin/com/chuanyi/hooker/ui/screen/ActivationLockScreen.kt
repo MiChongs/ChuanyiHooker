@@ -19,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,12 +29,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import com.chuanyi.hooker.data.ActivationAudit
 import com.chuanyi.hooker.data.ModuleSettings
-import com.chuanyi.hooker.data.rememberActivationStatus
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -59,9 +54,10 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  *
  * ## 只说设备侧还差什么，不提供加入群组的途径
  *
- * 这一屏**不放**频道、群组、邀请链接中的任何一个 —— 它回答的是「为什么现在用不了」
- * 和「这台设备还差哪一步」，不承担招徕的职责。已经在群里的人从这里拿到的是一条可
- * 执行的指令；不在群里的人不会从这里拿到入口。
+ * 这一屏**不放**那个申请机器人（[CommunityBotHandle][com.chuanyi.hooker.ui.component.CommunityBotHandle]）
+ * 和任何入群途径 —— 它回答的是「为什么现在用不了」和「这台设备还差哪一步」，不承担
+ * 招徕的职责。已经在群里的人从这里拿到的是一条可执行的指令；不在群里的人不会从这里
+ * 拿到入口。
  *
  * ## 为什么用三步清单而不是一段说明文字
  *
@@ -77,26 +73,16 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
  * `onSurfaceContainerVariant`（次要），而不是页面级的 `onBackground` —— 卡片的底色
  * 是 `surfaceContainer`，配对关系是成套的。
  *
- * ## 回前台时重查
+ * ## 稽核不在这一屏做
  *
- * 用户是**离开这个界面**去解决问题的：去 LSPosed 勾作用域、去 TG 启动一次。回来时
- * [ActivationAudit] 手里那份作用域还是旧的，所以每次回到前台都要求框架重拉一遍。
- * 令牌那边不用管 —— 广播落盘会改 `revision`，重组自然发生。
+ * [status] 由 `MainActivity` 传进来，它在「激活 / 未激活」分支**之前**就跑了
+ * [rememberActivationStatus]。这不是为了省一次调用：稽核负责发现「签发方已被移出
+ * 作用域」，而它要是只挂在这一屏上，就只会在已经锁上之后才跑 —— 激活状态下取消
+ * 作用域将永远不被发现。这个洞真实存在过。
  */
 @Composable
-fun ActivationLockScreen(settings: ModuleSettings) {
+fun ActivationLockScreen(settings: ModuleSettings, status: ActivationAudit.Status) {
     val context = LocalContext.current
-    val status = rememberActivationStatus(settings)
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    // 申请作用域走的是框架的系统弹窗，用户是在别的界面上点的同意；回来时不重拉，
-    // 这一屏会一直显示「还没进作用域」，而实际上已经进了。
-    LaunchedEffect(lifecycleOwner) {
-        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            settings.framework.refresh()
-        }
-    }
-
     var requestError by remember { mutableStateOf<String?>(null) }
     val steps = remember(status) { stepsOf(status) }
 

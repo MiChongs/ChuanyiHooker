@@ -22,7 +22,7 @@ import com.chuanyi.hooker.data.FrameworkService
 import com.chuanyi.hooker.data.ModuleSettings
 import com.chuanyi.hooker.nativehook.NativeHook
 import com.chuanyi.hooker.ui.component.AppIcon
-import com.chuanyi.hooker.ui.component.CommunityLinkRows
+import com.chuanyi.hooker.ui.component.CommunityBotRow
 import com.chuanyi.hooker.ui.component.FooterNote
 import com.chuanyi.hooker.ui.component.copyToClipboard
 import com.chuanyi.hooker.ui.component.rememberAppIconLoader
@@ -135,12 +135,12 @@ fun AboutScreen(
             }
         }
 
-        // 跟启动时那个邀请弹窗是同一份内容（见 CommunityLinks）：那边点过一次，
+        // 跟启动时那个邀请弹窗是同一份内容（见 CommunityBotRow）：那边点过一次，
         // 回到这里就知道该找哪一块。
         item { SmallTitle("社区") }
         item {
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                CommunityLinkRows()
+                CommunityBotRow()
             }
         }
 

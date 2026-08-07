@@ -36,6 +36,12 @@
     <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
 
     <!--
+        激活稽核作业要在重启后继续排期（JobInfo.setPersisted）。这个权限只是让
+        JobScheduler 保留作业记录，不会给本应用任何开机自启的能力。
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
         forceQueryable：让本应用对所有应用可见。
 
         不是为了方便，是激活校验那条链路的硬前提。TG 客户端进程里的探测算出令牌后
@@ -66,6 +72,31 @@
         <receiver
             android:name=".data.ActivationReceiver"
             android:exported="true" />
+
+        <!--
+            日志回传的落点，由被注入的进程通过 core 里的 LogRelay 发过来。
+
+            同样导出、同样不带 intent-filter（发送方用显式组件名）。导出是必须的 ——
+            发送方是目标应用的 uid，而目标应用不可能持有本模块的签名权限，所以
+            android:permission 这条路在这里根本不成立。
+
+            于是任何应用都能往这里塞几行假日志。可以接受：收进来的东西只会被显示，
+            不参与任何判定、不写配置、不被执行。要紧的那条链路（激活令牌）在上面那个
+            接收器，每一条都验 MAC。详见 LogReceiver 的类注释。
+        -->
+        <receiver
+            android:name=".data.LogReceiver"
+            android:exported="true" />
+
+        <!--
+            每天一次的激活稽核。补的是「用户在 LSPosed 里取消了作用域之后再也不打开
+            模块界面」这条路径 —— 那种情况下前台稽核永远不会跑。
+            BIND_JOB_SERVICE 是系统要求的，缺了 JobScheduler 会拒绝排期。
+        -->
+        <service
+            android:name=".data.ActivationJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <activity
             android:name=".ui.MainActivity"

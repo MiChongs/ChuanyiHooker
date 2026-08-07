@@ -87,6 +87,10 @@ compose-foundation = { module = "androidx.compose.foundation:foundation" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+# Downloadable Fonts 的 Compose 门面：把 GoogleFont(name) + Provider 解析成 Font。
+# 字体文件不进 APK，由 Google Play 服务的字体提供方在运行期下发并跨应用共享缓存。
+# 需要 res/values/font_certs.xml 里那两份证书才认得出提供方，见 ui/LogTypography.kt。
+compose-ui-text-google-fonts = { module = "androidx.compose.ui:ui-text-google-fonts" }
 
 # --- Miuix ---
 miuix-ui = { module = "top.yukonga.miuix.kmp:miuix-ui", version.ref = "miuix" }

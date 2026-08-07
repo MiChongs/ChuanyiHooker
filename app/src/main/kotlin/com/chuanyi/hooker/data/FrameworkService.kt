@@ -154,8 +154,10 @@ class FrameworkService {
      */
     fun refresh() {
         val bound = service ?: return
+        // 同步置位，不放进协程里：[refreshBlocking] 靠轮询这个标志判断「拉完了没有」，
+        // 而协程调度到真正执行之间有间隙 —— 在那个间隙里读到 false 会当成已经拉完。
+        isRefreshing = true
         io.launch {
-            isRefreshing = true
             try {
                 scope = runCatching { bound.scope }
                     .onFailure { lastError = it.readableMessage() }
@@ -171,6 +173,23 @@ class FrameworkService {
             } finally {
                 isRefreshing = false
             }
+        }
+    }
+
+    /**
+     * 同步重拉一遍，给**没有组合可依赖**的调用方用（后台稽核作业）。
+     *
+     * 界面那边靠 snapshot state 自动重组，拉完了自然会重画；作业跑在一次性线程上，
+     * 拉完之前就把稽核跑掉的话，读到的是空的作用域表 —— 而 [ActivationAudit] 正是
+     * 靠「表非空」来判断这份数据可不可信，会直接放弃判断。
+     *
+     * **只能在工作线程上调。**
+     */
+    fun refreshBlocking(timeoutMillis: Long = 8_000L) {
+        refresh()
+        val deadline = System.nanoTime() + timeoutMillis * 1_000_000
+        while (isRefreshing && System.nanoTime() < deadline) {
+            runCatching { Thread.sleep(50) }.onFailure { return }
         }
     }
 
